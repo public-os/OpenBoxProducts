@@ -16,3 +16,4 @@ PS C:\OpenBox\backend> python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver 
  pip install django-cors-headers
+  pip install djangorestframework-simplejwt

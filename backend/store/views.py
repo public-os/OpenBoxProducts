@@ -8,7 +8,17 @@ from .serializers import RegisterSerializer, UserSerializer
 from rest_framework import status
 from .models import Product, Category, Cart, CartItem, Order, OrderItem
 from .serializers import ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    return Response({
+        'username': request.user.username,
+        'email': request.user.email,
+    })
 
 @api_view(['GET'])
 def get_products(request):
@@ -118,7 +128,10 @@ def create_order(request):
     name = data.get('name')
     address = data.get('address')
     phone = data.get('phone')
-    payment_method = data.get('payment_method', 'COD')
+    payment_method = data.get('payment_method', 'ONLINE')
+
+    if payment_method == 'COD':
+        return Response({'error': 'Cash on Delivery (COD) is disabled. Please select an online payment method.'}, status=400)
 
     if not name or not address:
         return Response({'error': 'Name and address are required'}, status=400)

@@ -1,0 +1,74 @@
+// src/utils/auth.js
+const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
+
+export const getUsername = () => {
+  const token = getAccessToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.username || payload.user_name || null; // backend ke token payload me jo field hai
+  } catch {
+    return null;
+  }
+};
+
+export const saveTokens = (tokens, username) => {
+  localStorage.setItem("access_token", tokens.access);
+  localStorage.setItem("refresh_token", tokens.refresh);
+  localStorage.setItem("username", username);
+};
+
+export const clearTokens = () => {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("username");
+};
+
+export const getAccessToken = () => localStorage.getItem("access_token");
+export const getRefreshToken = () => localStorage.getItem("refresh_token");
+
+// Naya access token lene ke liye refresh token use karo
+const refreshAccessToken = async () => {
+  const refresh = getRefreshToken();
+  if (!refresh) return null;
+
+  try {
+    const response = await fetch(`${BASEURL}/api/token/refresh/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    });
+
+    if (!response.ok) {
+      clearTokens();
+      return null;
+    }
+
+    const data = await response.json();
+    localStorage.setItem("access_token", data.access);
+    return data.access;
+  } catch {
+    clearTokens();
+    return null;
+  }
+};
+
+export const authFetch = async (url, options = {}) => {
+  let token = getAccessToken();
+  const headers = options.headers ? { ...options.headers } : {};
+  headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let response = await fetch(url, { ...options, headers });
+
+  // Access token expire ho gaya to ek baar refresh try karo
+  if (response.status === 401 && getRefreshToken()) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      response = await fetch(url, { ...options, headers });
+    }
+  }
+
+  return response;
+};

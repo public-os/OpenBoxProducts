@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 function CartPage() {
     const { cartItems, total, removeFromCart, updateQuantity } = useCart();
+    const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
 
     return (
         <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
@@ -24,69 +25,76 @@ function CartPage() {
                 </div>
             ) : (
                 <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
-                    {cartItems.map((item) => (
-                        <div
-                            key={item.id}
-                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
-                        >
-                            {/* Product info */}
-                            <div className="flex items-center gap-4 min-w-0">
-                                {item.image && (
-                                    <img
-                                        src={item.image}
-                                        alt={item.name}
-                                        className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-lg flex-shrink-0"
-                                    />
-                                )}
-                                <div className="min-w-0">
-                                    <h2 className="text-base sm:text-lg font-semibold truncate">
-                                        {item.name}
-                                    </h2>
-                                    <p className="text-gray-600">₹{item.price}</p>
-                                </div>
-                            </div>
+                    {cartItems.map((item) => {
+                        const name = item.product_name || item.name;
+                        const price = item.product_price || item.price;
+                        const image = item.product_image || item.image;
+                        const imageSrc = image ? (image.startsWith('http') ? image : `${BASEURL}${image.startsWith('/') ? '' : '/'}${image}`) : null;
 
-                            {/* Quantity + remove controls */}
-                            <div className="flex items-center justify-between sm:justify-end gap-3">
-                                <div className="flex items-center gap-2 sm:gap-3">
+                        return (
+                            <div
+                                key={item.id}
+                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
+                            >
+                                {/* Product info */}
+                                <div className="flex items-center gap-4 min-w-0">
+                                    {imageSrc && (
+                                        <img
+                                            src={imageSrc}
+                                            alt={name}
+                                            className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-lg flex-shrink-0"
+                                        />
+                                    )}
+                                    <div className="min-w-0">
+                                        <h2 className="text-base sm:text-lg font-semibold truncate">
+                                            {name}
+                                        </h2>
+                                        <p className="text-gray-600">₹{price}</p>
+                                    </div>
+                                </div>
+
+                                {/* Quantity + remove controls */}
+                                <div className="flex items-center justify-between sm:justify-end gap-3">
+                                    <div className="flex items-center gap-2 sm:gap-3">
+                                        <button
+                                            className="w-9 h-9 bg-gray-200 hover:bg-gray-300 rounded transition duration-200 flex items-center justify-center text-lg"
+                                            onClick={() =>
+                                                updateQuantity(item.id, item.quantity - 1)
+                                            }
+                                            aria-label="Decrease quantity"
+                                        >
+                                            −
+                                        </button>
+                                        <span className="w-8 text-center font-medium">
+                                            {item.quantity}
+                                        </span>
+                                        <button
+                                            className="w-9 h-9 bg-gray-200 hover:bg-gray-300 rounded transition duration-200 flex items-center justify-center text-lg"
+                                            onClick={() =>
+                                                updateQuantity(item.id, item.quantity + 1)
+                                            }
+                                            aria-label="Increase quantity"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
                                     <button
-                                        className="w-9 h-9 bg-gray-200 hover:bg-gray-300 rounded transition duration-200 flex items-center justify-center text-lg"
-                                        onClick={() =>
-                                            updateQuantity(item.id, item.quantity - 1)
-                                        }
-                                        aria-label="Decrease quantity"
+                                        className="text-red-500 hover:text-red-700 text-sm sm:text-base transition duration-200"
+                                        onClick={() => removeFromCart(item.id)}
                                     >
-                                        −
-                                    </button>
-                                    <span className="w-8 text-center font-medium">
-                                        {item.quantity}
-                                    </span>
-                                    <button
-                                        className="w-9 h-9 bg-gray-200 hover:bg-gray-300 rounded transition duration-200 flex items-center justify-center text-lg"
-                                        onClick={() =>
-                                            updateQuantity(item.id, item.quantity + 1)
-                                        }
-                                        aria-label="Increase quantity"
-                                    >
-                                        +
+                                        Remove
                                     </button>
                                 </div>
-                                <button
-                                    className="text-red-500 hover:text-red-700 text-sm sm:text-base transition duration-200"
-                                    onClick={() => removeFromCart(item.id)}
-                                >
-                                    Remove
-                                </button>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
 
                     {/* Summary */}
                     <div className="border-t border-gray-200 pt-4 mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center justify-between sm:justify-start sm:gap-3">
                             <h2 className="text-lg sm:text-xl font-bold">Total:</h2>
                             <p className="text-lg sm:text-xl font-semibold">
-                                ₹{total.toFixed(2)}
+                                ₹{Number(total).toFixed(2)}
                             </p>
                         </div>
                         <Link

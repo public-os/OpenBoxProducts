@@ -10,6 +10,9 @@ urlpatterns = [
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
+    # User Profile
+    path('user/profile/', views.user_profile, name='user_profile'),
+    
     # Catalog
     path('products/', views.get_products, name='product_list'),
     path('products/<int:pk>/', views.get_product, name='product_detail'),
