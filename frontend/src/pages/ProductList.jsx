@@ -36,8 +36,7 @@ function ProductList() {
 
     return (
         <div className="min-h-screen bg-gray-400 text-gray-800">
-            <h1 className="text-3xl font-bold text-center py-4 bg-white shadow-md">Product List</h1>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 py-6 px-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 py-32 px-4 lg:py-22 md:py-22 sm:py-30">
                 {products.length === 0 ? (
                     <p className="text-center col-span-full">No products available.</p>
                 ) : (
