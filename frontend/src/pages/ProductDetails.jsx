@@ -1,5 +1,7 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { useCart } from '../context/CartContext.jsx';
+
 
 function ProductDetails() {
     const { id } = useParams();
@@ -9,11 +11,13 @@ function ProductDetails() {
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { addToCart, cartItems } = useCart();
+    const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
 
     useEffect(() => {
         fetch(`${BASEURL}/api/products/${id}/`)
             .then((response) => {
-                if (!response.ok) {
+                if (!response.ok) {        
                     throw new Error('Failed to fetch product details');
                 }
                 return response.json();
@@ -76,11 +80,25 @@ function ProductDetails() {
                     </div>
                 </form>
 
-                {/* Cart Icon */}
-                <Link to='/cart' className='p-1.5 text-gray-800 hover:text-blue-600 transition-colors' title='Cart'>
+                {/* Cart */}
+                <Link
+                    to='/cart'
+                    className='relative p-2 text-gray-700 hover:text-blue-600 transition-colors'
+                    title='Cart'
+                >
                     <svg className='w-6 h-6' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z' />
+                        <path
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                            strokeWidth='2'
+                            d='M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z'
+                        />
                     </svg>
+                    {cartItemCount > 0 && (
+                        <span className='absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center'>
+                            {cartItemCount}
+                        </span>
+                    )}
                 </Link>
             </nav>
 
@@ -96,8 +114,8 @@ function ProductDetails() {
                         <div className='flex-1'>
                             <h1 className='text-3xl font-bold text-gray-800 mb-2'>{product.name}</h1>
                             <p className='text-gray-600 mb-4'>{product.description}</p>
-                            <p className='text-2xl font-semibold text-green-600 mb-6'>{product.price}</p>
-                            <button className='bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition'>
+                            <p className='text-2xl font-semibold text-green-600 mb-6'>₹{product.price}</p>
+                            <button onClick={() => addToCart(product)} className='bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition cursor-pointer'>
                                 Add to Cart 🛒
                             </button>
                         </div>

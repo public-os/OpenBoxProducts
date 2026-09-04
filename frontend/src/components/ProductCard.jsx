@@ -15,7 +15,7 @@ function ProductCard({ product }) {
                 <h2 className="text-lg font-semibold text-gray-800 truncate">
                     {product.name}
                 </h2>
-                <p className="text-gray-600 font-medium">{product.price}</p>
+                <p className="text-gray-600 font-medium">₹{product.price}</p>
             </div>
         </Link>
     );

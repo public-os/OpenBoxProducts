@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useCart } from '../context/CartContext.jsx';
 
 const categories = [
     'For You',
@@ -16,6 +17,8 @@ function Navbar() {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState('For You');
     const navigate = useNavigate();
+    const { cartItems } = useCart();
+    const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
 
     const handleSearch = (e) => {
         e.preventDefault();
@@ -121,7 +124,7 @@ function Navbar() {
                     {/* Cart */}
                     <Link
                         to='/cart'
-                        className='p-2 text-gray-700 hover:text-blue-600 transition-colors'
+                        className='relative p-2 text-gray-700 hover:text-blue-600 transition-colors'
                         title='Cart'
                     >
                         <svg className='w-6 h-6' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
@@ -132,6 +135,11 @@ function Navbar() {
                                 d='M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z'
                             />
                         </svg>
+                        {cartItemCount > 0 && (
+                            <span className='absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center'>
+                                {cartItemCount}
+                            </span>
+                        )}
                     </Link>
                 </div>
             </div>
