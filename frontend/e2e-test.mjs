@@ -32,8 +32,8 @@ try {
   await page.getByPlaceholder('Username').fill('testuser1');
   await page.getByPlaceholder('Password', { exact: true }).fill('wrongpass');
   await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await page.getByText(/No active account found/i).waitFor();
-  ok('wrong password error shown', true);
+  await page.getByText(/Incorrect username|Password is incorrect/i).waitFor();
+  ok('wrong credentials error shown', true);
 
   // ---------- 3. Signup flow (name, username, password, mobile) ----------
   const uniq = String(Date.now()).slice(-6);

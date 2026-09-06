@@ -35,14 +35,14 @@ function ProductDetails() {
     const { addToCart, cartItems } = useCart();
     const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
 
-    // ---------- Measure navbar height (fix #7: no hardcoded pt-[60px]) ----------
+    // ---------- Measure navbar height (no hardcoded pt-[60px]) ----------
     const navRef = useRef(null);
     const [navHeight, setNavHeight] = useState(60);
     useEffect(() => {
         if (navRef.current) setNavHeight(navRef.current.offsetHeight);
     }, []);
 
-    // ---------- Fetch product (fix #2/#3: resets state, aborts stale requests) ----------
+    // ---------- Fetch product (resets state, aborts stale requests) ----------
     useEffect(() => {
         const controller = new AbortController();
 
@@ -125,7 +125,7 @@ function ProductDetails() {
     const showMrp = hasPrice && Number.isFinite(numericMrp) && numericMrp > numericPrice;
     const discount = showMrp ? Math.round(((numericMrp - numericPrice) / numericMrp) * 100) : 0;
 
-    // ---------- Image URL (fix #5: fallback instead of broken src='') ----------
+    // ---------- Image URL (fallback instead of broken src='') ----------
     const imageUrl = product?.image
         ? product.image.startsWith('http')
             ? product.image
@@ -134,7 +134,7 @@ function ProductDetails() {
 
     return (
         <div className='min-h-screen bg-gray-400'>
-            {/* ================= Top Navbar (fix #8: visible even while loading) ================= */}
+            {/* ================= Top Navbar (visible even while loading) ================= */}
             <nav
                 ref={navRef}
                 className='bg-blue-100 fixed top-0 w-full z-50 flex items-center gap-3 px-3 py-2.5 shadow-sm'
@@ -184,7 +184,7 @@ function ProductDetails() {
             </nav>
 
             {/* ================= Content ================= */}
-            <div className='pb-24 flex justify-center' style={{ paddingTop: `${navHeight + 12}px` }}>
+            <div className='pb-24 md:pb-8 flex justify-center' style={{ paddingTop: `${navHeight + 12}px` }}>
                 {loading && <div className='py-20 text-gray-800'>Loading...</div>}
 
                 {!loading && error && (
@@ -236,24 +236,42 @@ function ProductDetails() {
                                     )}
                                 </div>
 
-                                {/* Fix #1: now goes through the login check */}
+                                {/* Mobile-only Add to Cart button */}
                                 <button
                                     onClick={handleAddToCart}
                                     disabled={addingToCart}
-                                    className={`text-white px-6 py-2 rounded-lg transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                                    className={`md:hidden text-white px-6 py-2 rounded-lg transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                                         justAdded ? 'bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
                                     }`}
                                 >
                                     {addingToCart ? 'Adding…' : justAdded ? 'Added ✓' : 'Add to Cart 🛒'}
                                 </button>
+
+                                {/* Desktop-only action buttons */}
+                                <div className='hidden md:flex gap-3 mt-4'>
+                                    <button
+                                        onClick={handleAddToCart}
+                                        disabled={addingToCart}
+                                        className='flex-1 bg-white border border-gray-400 rounded-md py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                                    >
+                                        {justAdded ? 'Added ✓' : 'Add to cart'}
+                                    </button>
+                                    <button
+                                        onClick={handleBuyNow}
+                                        disabled={addingToCart}
+                                        className='flex-1 bg-gradient-to-b from-yellow-300 to-yellow-400 rounded-md py-3 text-sm font-bold text-gray-900 hover:from-yellow-400 hover:to-yellow-500 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                                    >
+                                        {hasPrice ? `Buy at ₹${formatINR(numericPrice)}` : 'Buy now'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* ================= Bottom Action Bar ================= */}
-            <div className='fixed bottom-0 w-full z-50 bg-white border-t border-gray-200 flex items-center gap-2 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.08)]'>
+            {/* ================= Bottom Action Bar (mobile only) ================= */}
+            <div className='fixed bottom-0 w-full z-50 bg-white border-t border-gray-200 flex items-center gap-2 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] md:hidden'>
                 <Link
                     to='/cart'
                     className='border border-gray-300 rounded-lg p-2.5 text-gray-700 hover:bg-gray-50 transition'

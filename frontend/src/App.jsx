@@ -12,7 +12,7 @@ import Login from './pages/Login.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import HomeNav from './components/HomeNav.jsx';
 
-const NAVBAR_PATHS = ['/cart', '/checkout', '/login', '/search', '/category', '/categories'];
+const NAVBAR_PATHS = ['/cart', '/checkout', '/login', '/search', '/categories', '/category'];
 const BOTTOMNAV_PATHS = ['/', '/cart', '/checkout', '/search', '/category', '/categories'];
 const HOMENAV_PATHS = ['/'];
 

@@ -4,6 +4,7 @@ import requests
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -15,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import ScopedRateThrottle
-from rest_framework import status
+from rest_framework import status, exceptions
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -114,14 +115,47 @@ def register_view(request):
 
 class LoginSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
-        data = super().validate(attrs)
-        data['user'] = {
-            'username': self.user.username,
-            'name': self.user.first_name or self.user.username,
-            'email': self.user.email,
-            'phone': _user_phone(self.user),
+        username = (attrs.get(self.username_field) or '').strip()
+        password = attrs.get('password') or ''
+
+        user = User.objects.filter(username__iexact=username).first()
+        if not user:
+            raise exceptions.AuthenticationFailed(
+                'Incorrect username',
+                'incorrect_username',
+            )
+
+        if not user.is_active:
+            raise exceptions.AuthenticationFailed(
+                'Account is inactive',
+                'account_inactive',
+            )
+
+        authenticated_user = authenticate(
+            request=self.context.get('request'),
+            username=user.username,
+            password=password,
+        )
+
+        if not authenticated_user:
+            raise exceptions.AuthenticationFailed(
+                'Password is incorrect',
+                'incorrect_password',
+            )
+
+        self.user = authenticated_user
+
+        refresh = self.get_token(self.user)
+        return {
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': {
+                'username': self.user.username,
+                'name': self.user.first_name or self.user.username,
+                'email': self.user.email,
+                'phone': _user_phone(self.user),
+            },
         }
-        return data
 
 
 class LoginView(TokenObtainPairView):

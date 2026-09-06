@@ -126,3 +126,14 @@ class StoreTestCase(TestCase):
         res = self.client.get(f'/admin/store/product/{self.prod_var.id}/change/')
         self.assertEqual(res.status_code, 200)
 
+    def test_login_incorrect_username(self):
+        res = self.client.post('/api/login/', {'username': 'nonexistentuser', 'password': 'somepassword'})
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.data.get('detail'), 'Incorrect username')
+
+    def test_login_incorrect_password(self):
+        res = self.client.post('/api/login/', {'username': 'testuser', 'password': 'wrongpassword'})
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.data.get('detail'), 'Password is incorrect')
+
+
