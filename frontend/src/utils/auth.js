@@ -1,31 +1,38 @@
 // src/utils/auth.js
 const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
 
-export const getUsername = () => {
-  const token = getAccessToken();
-  if (!token) return null;
+// Fired whenever the auth state changes so the rest of the app (e.g. CartContext)
+// can react without a page reload.
+export const AUTH_EVENT = 'auth-changed';
+
+const notifyAuthChanged = () => {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.username || payload.user_name || null; // backend ke token payload me jo field hai
+    window.dispatchEvent(new Event(AUTH_EVENT));
   } catch {
-    return null;
+    // window not available (e.g. during HMR teardown) — ignore
   }
 };
 
-export const saveTokens = (tokens, username) => {
-  localStorage.setItem("access_token", tokens.access);
-  localStorage.setItem("refresh_token", tokens.refresh);
-  localStorage.setItem("username", username);
+export const getUsername = () => localStorage.getItem('username') || null;
+
+export const saveTokens = (tokens, username, phone) => {
+  if (tokens.access) localStorage.setItem('access_token', tokens.access);
+  if (tokens.refresh) localStorage.setItem('refresh_token', tokens.refresh);
+  if (username) localStorage.setItem('username', username);
+  if (phone) localStorage.setItem('user_phone', phone);
+  notifyAuthChanged();
 };
 
 export const clearTokens = () => {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-  localStorage.removeItem("username");
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('username');
+  localStorage.removeItem('user_phone');
+  notifyAuthChanged();
 };
 
-export const getAccessToken = () => localStorage.getItem("access_token");
-export const getRefreshToken = () => localStorage.getItem("refresh_token");
+export const getAccessToken = () => localStorage.getItem('access_token');
+export const getRefreshToken = () => localStorage.getItem('refresh_token');
 
 // Naya access token lene ke liye refresh token use karo
 const refreshAccessToken = async () => {
@@ -45,7 +52,7 @@ const refreshAccessToken = async () => {
     }
 
     const data = await response.json();
-    localStorage.setItem("access_token", data.access);
+    localStorage.setItem('access_token', data.access);
     return data.access;
   } catch {
     clearTokens();

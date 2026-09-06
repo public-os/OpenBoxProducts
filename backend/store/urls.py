@@ -1,18 +1,21 @@
 from django.urls import path
 from . import views
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 app_name = 'store'
 
 urlpatterns = [
     # Auth
     path('register/', views.register_view, name='register'),
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('login/', views.LoginView.as_view(), name='login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('forgot-password/', views.forgot_password, name='forgot_password'),
+    path('reset-password/', views.reset_password, name='reset_password'),
+    path('google-login/', views.google_login, name='google_login'),
 
     # User Profile
     path('user/profile/', views.user_profile, name='user_profile'),
-    
+
     # Catalog
     path('products/', views.get_products, name='product_list'),
     path('products/<int:pk>/', views.get_product, name='product_detail'),

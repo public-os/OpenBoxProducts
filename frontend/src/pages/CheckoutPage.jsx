@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
-import { authFetch } from "../utils/auth.js";
+import { authFetch, getAccessToken } from "../utils/auth.js";
 
 function CheckoutPage() {
   const [form, setForm] = useState({
@@ -14,6 +14,28 @@ function CheckoutPage() {
   const nav = useNavigate();
   const { clearCart } = useCart();
   const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
+
+  useEffect(() => {
+    if (!getAccessToken()) return;
+    let isCancelled = false;
+    authFetch(`${BASEURL}/api/user/profile/`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isCancelled && data) {
+          setForm((prev) => ({
+            ...prev,
+            name: data.name || prev.name,
+            address: data.address || prev.address,
+            phone: data.phone || prev.phone,
+          }));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [BASEURL]);
 
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -45,7 +67,7 @@ function CheckoutPage() {
   };
 
   return (
-    <div className="pt-20 p-6">
+    <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
       <div className="max-w-lg mx-auto bg-white p-6 shadow rounded">
         <h1 className="text-2xl font-bold mb-4">Checkout</h1>
 
@@ -96,3 +118,4 @@ function CheckoutPage() {
 }
 
 export default CheckoutPage;
+

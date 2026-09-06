@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, createRef } from "react";
-import { authFetch, getAccessToken } from "../utils/auth.js";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { authFetch, getAccessToken, AUTH_EVENT } from "../utils/auth.js";
 
 const CartContext = createContext();
 
@@ -8,7 +8,7 @@ export const CartProvider = ({ children }) => {
     const [cartItems, setCartItems] = useState([]);
     const [total, setTotal] = useState(0);
 
-    const fetchCart = async () => {
+    const fetchCart = useCallback(async () => {
         try {
             const res = await authFetch(`${BASEURL}/api/cart/`)
             const data = await res.json();
@@ -17,27 +17,49 @@ export const CartProvider = ({ children }) => {
         } catch (error) {
             console.error("Error fetching cart:", error);
         }
-    }
+    }, [BASEURL]);
 
     useEffect(() => {
         if (getAccessToken()) {
-            fetchCart();
+            queueMicrotask(fetchCart);
         }
-    }, []);
+    }, [fetchCart]);
 
-    //Add Product to Cart
-    const addToCart = async (productId) => {
+    // Login/logout without a page reload (modal login, logout button) should
+    // load or clear the cart immediately instead of waiting for a refresh.
+    useEffect(() => {
+        const onAuthChange = () => {
+            if (getAccessToken()) {
+                fetchCart();
+            } else {
+                setCartItems([]);
+                setTotal(0);
+            }
+        };
+        window.addEventListener(AUTH_EVENT, onAuthChange);
+        return () => window.removeEventListener(AUTH_EVENT, onAuthChange);
+    }, [fetchCart]);
+
+    //Add Product to Cart (supports optional variantId)
+    const addToCart = async (productId, variantId = null) => {
         try {
-            await authFetch(`${BASEURL}/api/cart/add/`, {
+            const res = await authFetch(`${BASEURL}/api/cart/add/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ product_id: productId }),
+                body: JSON.stringify({ product_id: productId, variant_id: variantId }),
             });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.error || "Could not add item to cart.");
+                return false;
+            }
             fetchCart();
+            return true;
         } catch (error) {
             console.error("Error adding to cart:", error);
+            return false;
         }
     }
 
@@ -64,13 +86,18 @@ export const CartProvider = ({ children }) => {
             return;
         }
         try {
-            await authFetch(`${BASEURL}/api/cart/update/`, {
+            const res = await authFetch(`${BASEURL}/api/cart/update/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ item_id: itemId, quantity }),
             });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.error || "Could not update quantity.");
+                return;
+            }
             fetchCart();
         } catch (error) {
             console.error("Error updating quantity:", error);
@@ -90,4 +117,5 @@ export const CartProvider = ({ children }) => {
     );
 };
 
-export const useCart = () => useContext(CartContext);
+// eslint-disable-next-line react-refresh/only-export-components
+export const useCart = () => useContext(CartContext);

@@ -2,6 +2,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { getAccessToken } from '../utils/auth.js';
+import { formatINR } from '../utils/format.js';
 
 // Reusable icon (defined outside the component so it doesn't remount every render)
 const CartIcon = ({ className }) => (
@@ -45,10 +46,12 @@ function ProductDetails() {
     useEffect(() => {
         const controller = new AbortController();
 
-        setLoading(true);
-        setError(null);
-        setProduct(null);
-        setImageError(false);
+        queueMicrotask(() => {
+            setLoading(true);
+            setError(null);
+            setProduct(null);
+            setImageError(false);
+        });
 
         fetch(`${BASEURL}/api/products/${id}/`, { signal: controller.signal })
             .then((response) => {
@@ -100,15 +103,13 @@ function ProductDetails() {
         }
     };
 
-    const handleBuyNow = async (useEmi = false) => {
+    const handleBuyNow = async () => {
         if (requireLogin()) return;
 
         setAddingToCart(true);
         try {
             await addToCart(product.id);
-            // Pass EMI flag if you have an EMI selection step in checkout.
-            // If you don't have a /checkout page yet, change to: navigate('/cart');
-            navigate('/checkout', { state: { emi: useEmi } });
+            navigate('/checkout');
         } catch (err) {
             console.error('Buy now failed:', err);
         } finally {
@@ -116,10 +117,13 @@ function ProductDetails() {
         }
     };
 
-    // ---------- Derived values (fix #4: safe against string/NaN prices) ----------
+    // ---------- Derived values (safe against string/NaN prices) ----------
     const numericPrice = Number(product?.price);
     const hasPrice = Number.isFinite(numericPrice) && numericPrice > 0;
-    const monthlyEMI = hasPrice ? Math.ceil(numericPrice / 12) : null;
+    const numericMrp = Number(product?.mrp);
+    // MRP is only shown when it's actually higher than the selling price
+    const showMrp = hasPrice && Number.isFinite(numericMrp) && numericMrp > numericPrice;
+    const discount = showMrp ? Math.round(((numericMrp - numericPrice) / numericMrp) * 100) : 0;
 
     // ---------- Image URL (fix #5: fallback instead of broken src='') ----------
     const imageUrl = product?.image
@@ -218,9 +222,19 @@ function ProductDetails() {
                             <div className='flex-1'>
                                 <h1 className='text-3xl font-bold text-gray-800 mb-2'>{product.name}</h1>
                                 <p className='text-gray-600 mb-4'>{product.description}</p>
-                                <p className='text-2xl font-semibold text-green-600 mb-6'>
-                                    ₹{hasPrice ? numericPrice : '—'}
-                                </p>
+                                <div className='flex items-baseline gap-2 flex-wrap mb-6'>
+                                    <p className='text-2xl font-semibold text-green-600'>
+                                        ₹{hasPrice ? formatINR(numericPrice) : '—'}
+                                    </p>
+                                    {showMrp && (
+                                        <span className='text-base text-gray-500 line-through'>
+                                            MRP ₹{formatINR(numericMrp)}
+                                        </span>
+                                    )}
+                                    {discount > 0 && (
+                                        <span className='text-sm font-semibold text-green-700'>({discount}% off)</span>
+                                    )}
+                                </div>
 
                                 {/* Fix #1: now goes through the login check */}
                                 <button
@@ -249,21 +263,9 @@ function ProductDetails() {
                     <CartIcon className='w-5 h-5' />
                 </Link>
 
-                {/* Buy with EMI (fix #6: now functional) */}
+                {/* Buy Now */}
                 <button
-                    onClick={() => handleBuyNow(true)}
-                    disabled={!product || addingToCart}
-                    className='flex-1 border border-gray-300 rounded-lg py-2 text-center hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed'
-                >
-                    <span className='block text-sm font-semibold text-gray-800'>Buy with EMI</span>
-                    <span className='block text-xs text-gray-500'>
-                        {monthlyEMI ? `From ₹${monthlyEMI}/m` : 'EMI options'}
-                    </span>
-                </button>
-
-                {/* Buy Now (fix #6: now functional) */}
-                <button
-                    onClick={() => handleBuyNow(false)}
+                    onClick={handleBuyNow}
                     disabled={!product || addingToCart}
                     className='flex-1 bg-yellow-400 rounded-lg py-2 text-center hover:bg-yellow-500 transition disabled:opacity-60 disabled:cursor-not-allowed'
                 >
@@ -271,7 +273,7 @@ function ProductDetails() {
                         {addingToCart ? 'Please wait…' : 'Buy now'}
                     </span>
                     <span className='block text-xs text-gray-800'>
-                        {hasPrice ? `at ₹${product.price}` : 'See price at checkout'}
+                        {hasPrice ? `at ₹${formatINR(numericPrice)}` : 'See price at checkout'}
                     </span>
                 </button>
             </div>

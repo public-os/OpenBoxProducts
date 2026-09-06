@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
 import { getAccessToken, getUsername, clearTokens, authFetch } from '../utils/auth.js';
 
-// Moved outside Navbar so it isn't re-created (and re-mounted) on every render.
+// 'For You' is the home tab; the rest come from the backend so the tabs always
+// match the real categories (the old hardcoded list didn't).
+const FOR_YOU_TAB = 'For You';
+
+// Moved outside HomeNav so it isn't re-created (and re-mounted) on every render.
 function SearchInput({ mobile, searchQuery, setSearchQuery }) {
     return (
         <div className='relative flex items-center'>
@@ -44,17 +48,33 @@ function SearchInput({ mobile, searchQuery, setSearchQuery }) {
     );
 }
 
-function Navbar() {
+function HomeNav() {
     const [searchQuery, setSearchQuery] = useState('');
+    const [categories, setCategories] = useState([]);
     const [userProfile, setUserProfile] = useState(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef(null);
     const navigate = useNavigate();
+    const location = useLocation();
     const { cartItems } = useCart();
     const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
 
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
     const token = getAccessToken();
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`${BASEURL}/api/categories/`)
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch categories');
+                return res.json();
+            })
+            .then((data) => {
+                if (!cancelled) setCategories(data.map((c) => c.name));
+            })
+            .catch((err) => console.error('Error fetching categories:', err));
+        return () => { cancelled = true; };
+    }, [BASEURL]);
 
     useEffect(() => {
         if (token) {
@@ -66,7 +86,7 @@ function Navbar() {
                 .then((data) => {
                     setUserProfile(data);
                     if (data.username) {
-                        localStorage.setItem("username", data.username);
+                        localStorage.setItem('username', data.username);
                     }
                 })
                 .catch((err) => console.error('Error fetching user profile:', err));
@@ -112,10 +132,10 @@ function Navbar() {
     return (
         <header className='bg-white shadow-md fixed w-full top-0 z-50'>
             {/* ================= Top Row ================= */}
-            <div className='flex items-center gap-2 md:gap-4 px-4 md:px-8 py-3'>
-                {/* Logo — desktop & mobile */}
+            <div className='flex items-center gap-2 md:gap-3 lg:gap-5 px-4 md:px-6 lg:px-8 py-3'>
+                {/* Logo */}
                 <Link to='/' className='flex items-center whitespace-nowrap flex-shrink-0'>
-                    <img src='/FullLogo_NoBuffer.png' alt='OpenBoxShop' className='h-9 w-auto object-contain' />
+                    <img src='/FullLogo_NoBuffer.png' alt='OpenBoxShop' className='h-8 md:h-9 w-auto object-contain' />
                 </Link>
 
                 {/* ===== Desktop Search — flexible width, kabhi overflow nahi ===== */}
@@ -129,8 +149,8 @@ function Navbar() {
                     </div>
                 </form>
 
-                {/* Right Side Icons */}
-                <div className='flex items-center gap-1 md:gap-3 ml-auto flex-shrink-0'>
+                {/* ===== Right side: avatar / login / cart ===== */}
+                <div className='flex items-center gap-1 md:gap-2 lg:gap-3 flex-shrink-0 ml-auto'>
                     {token ? (
                         <div className='relative hidden md:block' ref={menuRef}>
                             <button
@@ -210,12 +230,35 @@ function Navbar() {
                 </div>
             </div>
 
-            {/* ================= Mobile Search Row — full width, own line ================= */}
+            {/* ================= Mobile Search Row ================= */}
             <form onSubmit={handleSearch} className='md:hidden px-4 pb-3'>
                 <SearchInput mobile={true} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
             </form>
+
+            {/* ============ Category Tabs — mobile only ============ */}
+            <nav className='md:hidden flex gap-6 px-4 overflow-x-auto no-scrollbar border-b border-gray-100'>
+                {[FOR_YOU_TAB, ...categories].map((category) => {
+                    const href = category === FOR_YOU_TAB
+                        ? '/'
+                        : `/category/${category.toLowerCase().replace(/\s+/g, '-')}`;
+                    // Active tab follows the URL, so browser back/refresh highlight correctly
+                    const active = location.pathname === href;
+                    return (
+                        <Link
+                            key={category}
+                            to={href}
+                            className={`pb-2 pt-0.5 text-sm whitespace-nowrap border-b-2 transition-colors ${active
+                                ? 'text-blue-600 border-blue-600 font-semibold'
+                                : 'text-gray-600 border-transparent'
+                                }`}
+                        >
+                            {category}
+                        </Link>
+                    );
+                })}
+            </nav>
         </header>
     );
 }
 
-export default Navbar;
+export default HomeNav;

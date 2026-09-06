@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -51,8 +52,21 @@ INSTALLED_APPS = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    # Scoped throttles: OTP SMS bombing / Google endpoint abuse protection
+    'DEFAULT_THROTTLE_RATES': {
+        'otp': '10/hour',
+        'google': '30/hour',
+    },
 }
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+}
+
+# Google Sign-In: same client ID as the frontend (VITE_GOOGLE_CLIENT_ID)
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
