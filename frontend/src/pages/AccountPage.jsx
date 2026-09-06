@@ -77,8 +77,8 @@ function AccountPage() {
     ];
 
     return (
-        <>
-            <nav className="fixed top-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 bg-white">
+        <> 
+            <nav className="bg-blue-100 fixed top-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5">
                 {/* Back Arrow */}
                 <button
                     onClick={() => navigate(-1)}
@@ -97,10 +97,7 @@ function AccountPage() {
                 <div className="w-9"></div>
             </nav>
 
-            <div className="sm:py-12 py-10 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
-                <h1 className="text-2xl sm:text-3xl font-bold text-left">
-                    Your Account
-                </h1>
+            <div className="sm:py-15 py-15 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
 
                 <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200">

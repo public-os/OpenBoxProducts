@@ -366,7 +366,7 @@ def get_product(request, pk):
 @api_view(['GET'])
 def get_categories(request):
     categories = Category.objects.all()
-    serializer = CategorySerializer(categories, many=True)
+    serializer = CategorySerializer(categories, many=True, context={'request': request})
     return Response(serializer.data)
 
 

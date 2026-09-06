@@ -3,13 +3,19 @@ from rest_framework.validators import UniqueValidator
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
-from .models import Product, Category, Cart, CartItem, UserProfile
+from .models import Product, Category, Cart, CartItem, UserProfile, ProductImage
 
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug']
+        fields = ['id', 'name', 'slug', 'image']
+
+
+class ProductImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductImage
+        fields = ['id', 'image', 'is_primary', 'order']
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -17,11 +23,12 @@ class ProductSerializer(serializers.ModelSerializer):
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), source='category', write_only=True
     )
+    images = ProductImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
         fields = ['id', 'category', 'category_id', 'name', 'description',
-                  'price', 'mrp', 'stock', 'image', 'created_at']
+                  'price', 'mrp', 'stock', 'image', 'images', 'created_at']
 
 
 class CartItemSerializer(serializers.ModelSerializer):

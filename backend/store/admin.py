@@ -26,6 +26,8 @@ class CategoryAdmin(admin.ModelAdmin):
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
+    verbose_name = "Product Details Page Image"
+    verbose_name_plural = "SECTION 2: Gallery Images (For Product Details Page)"
     fields = ('variant', 'image', 'is_primary', 'order', 'image_preview')
     readonly_fields = ('image_preview',)
 
@@ -39,21 +41,32 @@ class ProductImageInline(admin.TabularInline):
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
+    verbose_name = "Color Variant"
+    verbose_name_plural = "Product Color Variants"
     fields = ('color_name', 'color_code', 'stock', 'extra_price', 'sku')
 
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category', 'price', 'mrp', 'total_stock_display', 'created_at', 'thumbnail_preview')
+    list_display = ('thumbnail_preview', 'name', 'category', 'price', 'mrp', 'total_stock_display', 'created_at')
+    list_display_links = ('thumbnail_preview', 'name')
     list_filter = ('category',)
     search_fields = ('name',)
     inlines = [ProductVariantInline, ProductImageInline]
-    readonly_fields = ('variant_stock_note',)
-    fields = ('category', 'name', 'description', 'price', 'mrp', 'stock', 'variant_stock_note', 'image')
+    
+    fieldsets = (
+        ('Basic Details', {
+            'fields': ('category', 'name', 'description', 'price', 'mrp', 'stock', 'variant_stock_note')
+        }),
+        ('SECTION 1: Main Product Thumbnail (For Home & Category Lists)', {
+            'description': 'Upload a single main thumbnail image to be displayed on product cards, category pages, and home page.',
+            'fields': ('image', 'thumbnail_preview'),
+        }),
+    )
 
     def thumbnail_preview(self, obj):
         if obj.image:
-            return format_html('<img src="{}" style="height:40px;border-radius:4px;" />', obj.image.url)
+            return format_html('<img src="{}" style="height:45px;border-radius:6px;" />', obj.image.url)
         return "-"
     thumbnail_preview.short_description = 'Thumbnail'
 
@@ -74,10 +87,10 @@ class ProductAdmin(admin.ModelAdmin):
     variant_stock_note.short_description = ''
 
     def get_readonly_fields(self, request, obj=None):
-        # Agar variants hain, to base stock field ko readonly kar do (edit sirf variants me)
+        base_readonly = ('variant_stock_note', 'thumbnail_preview')
         if obj and obj.variants.exists():
-            return ('variant_stock_note', 'stock')
-        return ('variant_stock_note',)
+            return base_readonly + ('stock',)
+        return base_readonly
 
 
 admin.site.register(OrderItem)

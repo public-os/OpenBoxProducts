@@ -31,6 +31,7 @@ function ProductDetails() {
     const [addingToCart, setAddingToCart] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
     const [imageError, setImageError] = useState(false);
+    const [selectedImage, setSelectedImage] = useState(null);
 
     const { addToCart, cartItems } = useCart();
     const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
@@ -51,6 +52,7 @@ function ProductDetails() {
             setError(null);
             setProduct(null);
             setImageError(false);
+            setSelectedImage(null);
         });
 
         fetch(`${BASEURL}/api/products/${id}/`, { signal: controller.signal })
@@ -97,7 +99,6 @@ function ProductDetails() {
             setTimeout(() => setJustAdded(false), 1500);
         } catch (err) {
             console.error('Add to cart failed:', err);
-            // TODO: show a toast here
         } finally {
             setAddingToCart(false);
         }
@@ -121,16 +122,22 @@ function ProductDetails() {
     const numericPrice = Number(product?.price);
     const hasPrice = Number.isFinite(numericPrice) && numericPrice > 0;
     const numericMrp = Number(product?.mrp);
-    // MRP is only shown when it's actually higher than the selling price
     const showMrp = hasPrice && Number.isFinite(numericMrp) && numericMrp > numericPrice;
     const discount = showMrp ? Math.round(((numericMrp - numericPrice) / numericMrp) * 100) : 0;
 
-    // ---------- Image URL (fallback instead of broken src='') ----------
-    const imageUrl = product?.image
-        ? product.image.startsWith('http')
-            ? product.image
-            : `${BASEURL}/${product.image.replace(/^\//, '')}`
-        : null;
+    // ---------- Image URLs (Thumbnail + Gallery) ----------
+    const resolveImageUrl = (img) => {
+        if (!img) return null;
+        if (img.startsWith('http')) return img;
+        return `${BASEURL}/${img.replace(/^\//, '')}`;
+    };
+
+    const galleryImages = [
+        ...(product?.image ? [{ id: 'main', image: product.image }] : []),
+        ...(product?.images || []),
+    ];
+
+    const currentImage = selectedImage || (galleryImages[0]?.image ? resolveImageUrl(galleryImages[0].image) : null);
 
     return (
         <div className='min-h-screen bg-gray-400'>
@@ -206,18 +213,43 @@ function ProductDetails() {
                 {!loading && !error && product && (
                     <div className='bg-white shadow-lg rounded-2xl p-6 max-w-3xl w-full m-4'>
                         <div className='flex flex-col md:flex-row gap-8'>
-                            {imageUrl && !imageError ? (
-                                <img
-                                    src={imageUrl}
-                                    alt={product.name}
-                                    onError={() => setImageError(true)}
-                                    className='w-full md:w-1/2 h-auto object-cover rounded-lg'
-                                />
-                            ) : (
-                                <div className='w-full md:w-1/2 aspect-square bg-gray-200 rounded-lg flex items-center justify-center text-gray-400'>
-                                    No image available
+                            <div className='w-full md:w-1/2 flex flex-col gap-3'>
+                                <div className='w-full bg-slate-50/80 rounded-2xl p-4 flex items-center justify-center h-64 sm:h-80 md:h-96 overflow-hidden border border-gray-100 shadow-inner'>
+                                    {currentImage && !imageError ? (
+                                        <img
+                                            src={currentImage}
+                                            alt={product.name}
+                                            onError={() => setImageError(true)}
+                                            className='h-full w-full object-contain hover:scale-105 transition-transform duration-300'
+                                        />
+                                    ) : (
+                                        <div className='text-gray-400 font-medium'>
+                                            No image available
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+
+                                {/* Gallery Thumbnails row */}
+                                {galleryImages.length > 1 && (
+                                    <div className='flex items-center gap-2 overflow-x-auto no-scrollbar py-1'>
+                                        {galleryImages.map((imgObj, idx) => {
+                                            const fullUrl = resolveImageUrl(imgObj.image);
+                                            const isActive = currentImage === fullUrl;
+                                            return (
+                                                <button
+                                                    key={imgObj.id || idx}
+                                                    onClick={() => setSelectedImage(fullUrl)}
+                                                    className={`w-14 h-14 rounded-xl border-2 overflow-hidden p-1 bg-slate-50 transition-all flex-shrink-0 cursor-pointer ${
+                                                        isActive ? 'border-blue-600 ring-2 ring-blue-100' : 'border-gray-200 hover:border-gray-400'
+                                                    }`}
+                                                >
+                                                    <img src={fullUrl} alt="Gallery thumbnail" className="w-full h-full object-contain" />
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
 
                             <div className='flex-1'>
                                 <h1 className='text-3xl font-bold text-gray-800 mb-2'>{product.name}</h1>

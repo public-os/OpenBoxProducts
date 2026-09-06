@@ -14,11 +14,13 @@ const notifyAuthChanged = () => {
 };
 
 export const getUsername = () => localStorage.getItem('username') || null;
+export const getUserName = () => localStorage.getItem('user_name') || localStorage.getItem('username') || null;
 
-export const saveTokens = (tokens, username, phone) => {
+export const saveTokens = (tokens, username, phone, name) => {
   if (tokens.access) localStorage.setItem('access_token', tokens.access);
   if (tokens.refresh) localStorage.setItem('refresh_token', tokens.refresh);
   if (username) localStorage.setItem('username', username);
+  if (name) localStorage.setItem('user_name', name);
   if (phone) localStorage.setItem('user_phone', phone);
   notifyAuthChanged();
 };
@@ -27,6 +29,7 @@ export const clearTokens = () => {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('username');
+  localStorage.removeItem('user_name');
   localStorage.removeItem('user_phone');
   notifyAuthChanged();
 };

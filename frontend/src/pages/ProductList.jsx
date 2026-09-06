@@ -121,8 +121,8 @@ function ProductList() {
     return (
         // md:pb-10 → desktop pe footer ke neeche gray strip dikhegi (wrapper ka bg-gray-400)
         <div
-            className={`min-h-[100dvh] bg-gray-400 text-gray-800 md:pt-15 md:pb-10 flex flex-col ${
-                isHome ? 'pt-40' : 'pt-28'
+            className={`min-h-[100dvh] bg-gray-400 text-gray-800 md:pt-1 md:pb-10 flex flex-col ${
+                isHome ? 'pt-40' : 'pt-38'
             }`}
         >
             {/* flex-1: saara content ye div me — footer ko bottom tak dhakelta hai */}
@@ -130,22 +130,44 @@ function ProductList() {
                 {/* ===== Category tiles — first section on home, both mobile and desktop ===== */}
                 {isHome && (
                     <section className="px-4 md:pt-5">
-                        <h1 className="text-xl sm:text-2xl font-bold">Shop by Category</h1>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 sm:gap-4 py-6">
+                        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">Shop by Category</h1>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 sm:gap-4 py-4">
                             {categories.length === 0 ? (
                                 <p className="text-center col-span-full text-gray-700">No categories available.</p>
                             ) : (
-                                categories.map((category) => (
-                                    <Link
-                                        key={category.id}
-                                        to={`/category/${category.slug || category.name}`}
-                                        className="bg-white rounded-xl shadow-md hover:shadow-lg hover:scale-[1.02] transition-transform p-5 sm:p-6 text-center flex items-center justify-center"
-                                    >
-                                        <span className="text-sm sm:text-base font-semibold text-gray-800">
-                                            {category.name}
-                                        </span>
-                                    </Link>
-                                ))
+                                categories.map((category) => {
+                                    const imgUrl = category.image
+                                        ? category.image.startsWith('http')
+                                            ? category.image
+                                            : `${BASEURL}${category.image.startsWith('/') ? '' : '/'}${category.image}`
+                                        : null;
+
+                                    return (
+                                        <Link
+                                            key={category.id}
+                                            to={`/category/${category.slug || category.name}`}
+                                            className="group bg-white rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 p-2 sm:p-2.5 flex flex-col items-center justify-between border border-gray-100"
+                                        >
+                                            <div className="w-full bg-slate-50/80 rounded-xl p-2 flex items-center justify-center h-20 sm:h-24 md:h-28 overflow-hidden">
+                                                {imgUrl ? (
+                                                    <img
+                                                        src={imgUrl}
+                                                        alt={category.name}
+                                                        className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <div className="text-gray-400 font-bold text-lg">
+                                                        {category.name.charAt(0)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span className="text-xs sm:text-sm font-semibold text-gray-800 text-center line-clamp-2 mt-2 px-1 leading-snug group-hover:text-blue-600 transition-colors">
+                                                {category.name}
+                                            </span>
+                                        </Link>
+                                    );
+                                })
                             )}
                         </div>
                     </section>

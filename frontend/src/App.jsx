@@ -12,9 +12,9 @@ import Login from './pages/Login.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import HomeNav from './components/HomeNav.jsx';
 
-const NAVBAR_PATHS = ['/cart', '/checkout', '/login', '/search', '/categories', '/category'];
-const BOTTOMNAV_PATHS = ['/', '/cart', '/checkout', '/search', '/category', '/categories'];
-const HOMENAV_PATHS = ['/'];
+const NAVBAR_PATHS = ['/cart', '/checkout', '/login', '/search', '/categories'];
+const BOTTOMNAV_PATHS = ['/', '/cart', '/checkout', '/search', '/category', '/categories', '/account'];
+const HOMENAV_PATHS = ['/', '/category'];
 
 const matchesNav = (pathname, bases) =>
   bases.some((base) => pathname === base || pathname.startsWith(base + '/'));
