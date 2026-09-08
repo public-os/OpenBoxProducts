@@ -55,7 +55,7 @@ export const CartProvider = ({ children }) => {
                 alert(data.error || "Could not add item to cart.");
                 return false;
             }
-            fetchCart();
+            await fetchCart();
             return true;
         } catch (error) {
             console.error("Error adding to cart:", error);
@@ -73,7 +73,7 @@ export const CartProvider = ({ children }) => {
                 },
                 body: JSON.stringify({ item_id: itemId }),
             });
-            fetchCart();
+            await fetchCart();
         } catch (error) {
             console.error("Error removing from cart:", error);
         }
@@ -98,7 +98,7 @@ export const CartProvider = ({ children }) => {
                 alert(data.error || "Could not update quantity.");
                 return;
             }
-            fetchCart();
+            await fetchCart();
         } catch (error) {
             console.error("Error updating quantity:", error);
         }

@@ -1,6 +1,11 @@
-from django.db import models
+import logging
+import threading
+
+from django.db import models, transaction
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
+
+logger = logging.getLogger(__name__)
 
 
 class Category(models.Model):
@@ -70,6 +75,19 @@ class Product(models.Model):
             self.stock = total
             self.save(update_fields=['stock'])
 
+    def save(self, *args, **kwargs):
+        # Restock detection: purani stock value chahiye (0 -> positive transition ke liye).
+        # recalculate_stock bhi isi save se guzarta hai, toh variant restock yahin pakda jaata hai.
+        old_stock = None
+        if self.pk:
+            old_stock = Product.objects.filter(pk=self.pk).values_list('stock', flat=True).first()
+        super().save(*args, **kwargs)
+        if old_stock == 0 and self.stock > 0:
+            # commit ke baad background mein subscribers ko email
+            transaction.on_commit(
+                lambda: StockAlert.send_back_in_stock_emails(self.pk)
+            )
+
 
 
 class ProductVariant(models.Model):
@@ -89,9 +107,16 @@ class ProductVariant(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.sku:
-            # e.g. PROD14-WHT (product id + first 3 letters of color, uppercase)
+            # e.g. PROD14-WHT (product id + first 3 alpha chars of color, uppercase)
             color_part = ''.join(ch for ch in self.color_name if ch.isalpha())[:3].upper()
-            self.sku = f"PROD{self.product_id}-{color_part}"
+            base_sku = f"PROD{self.product_id}-{color_part}"
+            candidate = base_sku
+            suffix = 1
+            # Guard against collision on the unique field
+            while ProductVariant.objects.filter(sku=candidate).exclude(pk=self.pk).exists():
+                candidate = f"{base_sku}-{suffix}"
+                suffix += 1
+            self.sku = candidate
         super().save(*args, **kwargs)
         self.product.recalculate_stock()
 
@@ -142,6 +167,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     phone = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
+    picture = models.URLField(blank=True)  # Google profile photo URL
 
     def __str__(self):
         return self.user.username
@@ -162,13 +188,35 @@ class Order(models.Model):
         ('pending', 'Pending'),
         ('paid', 'Paid'),
         ('shipped', 'Shipped'),
+        ('delivered', 'Delivered'),
         ('cancelled', 'Cancelled'),
+    ]
+    PAYMENT_STATUS_CHOICES = [
+        ('pending', 'Payment Pending'),
+        ('verifying', 'Verifying Payment'),
+        ('paid', 'Paid'),
+        ('failed', 'Payment Failed'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+
+    # Shipping details collected on the checkout page
+    shipping_name = models.CharField(max_length=150, blank=True)
+    shipping_phone = models.CharField(max_length=15, blank=True)
+    shipping_address = models.TextField(blank=True)
+
+    # Direct UPI payment tracking
+    order_ref = models.CharField(max_length=20, unique=True, blank=True)  # sent as UPI `tr`
+    payment_status = models.CharField(
+        max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending', db_index=True
+    )
+    payment_ref = models.CharField(max_length=22, blank=True)  # UTR entered by customer
+    paid_at = models.DateTimeField(null=True, blank=True)
+    # Order tracking: jab bhi status/payment update ho, ye field refresh hoti hai
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -229,3 +277,61 @@ class CartItem(models.Model):
     def __str__(self):
         color = f" ({self.variant.color_name})" if self.variant else ""
         return f"{self.product.name}{color} × {self.quantity}"
+
+
+class StockAlert(models.Model):
+    """Out-of-stock product ke liye customer ki 'Notify me' subscription.
+    Logged-in user alerts: user set, email NULL. Legacy email alerts: email set."""
+    user = models.ForeignKey(
+        User, related_name='stock_alerts', on_delete=models.CASCADE,
+        null=True, blank=True,
+    )
+    product = models.ForeignKey(Product, related_name='stock_alerts', on_delete=models.CASCADE)
+    email = models.EmailField(null=True, blank=True)
+    notified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('product', 'email')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        who = self.user.username if self.user else self.email
+        return f"{who} → {self.product.name}"
+
+    @classmethod
+    def send_back_in_stock_emails(cls, product_pk):
+        """Restock par subscribers ko email — daemon thread mein (request block na ho)."""
+        threading.Thread(
+            target=cls._send_back_in_stock_emails, args=(product_pk,), daemon=True
+        ).start()
+
+    @classmethod
+    def _send_back_in_stock_emails(cls, product_pk):
+        from django.conf import settings
+        from django.core.mail import send_mail
+
+        product = Product.objects.filter(pk=product_pk).first()
+        if not product or product.stock <= 0:
+            # beech mein product delete ho gaya ya phir se out of stock ho gaya
+            return
+
+        # sirf email wale (legacy) alerts ko email bhejo — user alerts Telegram se cover hote hain
+        for alert in cls.objects.filter(product_id=product_pk, notified=False).exclude(email=''):
+            sent = send_mail(
+                f"Back in stock: {product.name}",
+                (
+                    f"Good news!\n\n"
+                    f"{product.name} is back in stock — only {product.stock} unit(s) left.\n"
+                    f"Order soon, stock phir khatam ho sakta hai.\n"
+                ),
+                settings.DEFAULT_FROM_EMAIL,
+                [alert.email],
+                fail_silently=True,
+            )
+            if sent:
+                alert.notified = True
+                alert.save(update_fields=['notified'])
+            else:
+                # notified False rahega — agle restock par dobara try hoga
+                logger.warning("Stock alert email send nahi hua: %s", alert.email)

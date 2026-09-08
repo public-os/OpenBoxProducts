@@ -1,15 +1,114 @@
+import { useEffect, useState } from "react";
 import { useCart } from "../context/CartContext";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { authFetch, getAccessToken } from "../utils/auth.js";
+import { formatDateTime, formatINR } from "../utils/format.js";
+
+const PAYMENT_BADGES = {
+    pending: "bg-yellow-100 text-yellow-800",
+    verifying: "bg-blue-100 text-blue-800",
+    paid: "bg-green-100 text-green-800",
+    failed: "bg-red-100 text-red-700",
+};
+
+const PAYMENT_LABELS = {
+    pending: "Payment Pending",
+    verifying: "Verifying Payment",
+    paid: "Paid",
+    failed: "Payment Failed",
+};
 
 function CartPage() {
     const { cartItems, total, removeFromCart, updateQuantity } = useCart();
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
+    const nav = useNavigate();
+
+    // Sirf pending (unpaid) orders — null = loading / logged out, [] = koi pending nahi
+    const [pendingOrders, setPendingOrders] = useState(null);
+
+    useEffect(() => {
+        if (!getAccessToken()) return;
+        let isCancelled = false;
+        authFetch(`${BASEURL}/api/orders/`)
+            .then((res) => (res.ok ? res.json() : []))
+            .then((orders) => {
+                if (!isCancelled) {
+                    setPendingOrders(orders.filter((o) => o.status === "pending"));
+                }
+            })
+            .catch(() => {
+                if (!isCancelled) setPendingOrders([]);
+            });
+        return () => {
+            isCancelled = true;
+        };
+    }, [BASEURL]);
 
     return (
         <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-center pt-8 lg:pt-10 md:pt-10 sm:pt-18 pb-4 sm:pb-3">
                 🛒 Your Cart
             </h1>
+
+            {/* ---------- Pending Orders: payment baaki hai ---------- */}
+            {pendingOrders && pendingOrders.length > 0 && (
+                <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
+                        ⏳ Pending Orders
+                        <span className="ml-2 text-sm font-normal text-gray-500">
+                            payment complete karna baaki hai
+                        </span>
+                    </h2>
+                    {pendingOrders.map((order) => {
+                        const payAllowed =
+                            order.payment_status !== "paid" &&
+                            order.payment_status !== "verifying";
+                        return (
+                            <div
+                                key={order.order_id}
+                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
+                            >
+                                <div className="min-w-0">
+                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                    <p className="text-xs text-gray-500">
+                                        Placed: {formatDateTime(order.created_at)}
+                                    </p>
+                                    <span
+                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                            PAYMENT_BADGES[order.payment_status] ||
+                                            "bg-gray-100 text-gray-700"
+                                        }`}
+                                    >
+                                        {PAYMENT_LABELS[order.payment_status] || order.payment_status}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-4 shrink-0">
+                                    <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
+                                    {payAllowed ? (
+                                        <button
+                                            onClick={() =>
+                                                nav("/checkout", {
+                                                    state: { resumeOrderId: order.order_id },
+                                                })
+                                            }
+                                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm font-semibold"
+                                        >
+                                            Pay Now
+                                        </button>
+                                    ) : (
+                                        <Link
+                                            to="/account"
+                                            className="text-blue-600 hover:underline text-sm"
+                                        >
+                                            Track Order
+                                        </Link>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {cartItems.length === 0 ? (
                 <div className="text-center pb-1">

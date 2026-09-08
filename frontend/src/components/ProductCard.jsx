@@ -15,22 +15,37 @@ function ProductCard({ product }) {
     const showMrp = Number.isFinite(price) && price > 0 && Number.isFinite(mrp) && mrp > price;
     const discount = showMrp ? Math.round(((mrp - price) / mrp) * 100) : 0;
 
+    // Stock indicators: 0 = out of stock, 1-10 = low stock urgency
+    const stock = Number(product.stock);
+    const outOfStock = stock === 0;
+    const lowStock = !outOfStock && stock <= 10;
+
     return (
         <Link to={`/product/${product.id}`} className="block h-full">
             <div className="group bg-white rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 p-2 sm:p-3 border border-gray-100 cursor-pointer flex flex-col justify-between h-full">
                 {/* Compact, aspect-proportional thumbnail container for mobile & desktop */}
-                <div className="w-full bg-slate-50/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 flex items-center justify-center h-24 sm:h-36 md:h-44 lg:h-48 overflow-hidden mb-1.5 sm:mb-2.5">
+                <div className="relative w-full bg-slate-50/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 flex items-center justify-center h-24 sm:h-36 md:h-44 lg:h-48 overflow-hidden mb-1.5 sm:mb-2.5">
                     {imageSrc ? (
                         <img
                             src={imageSrc}
                             alt={product.name}
-                            className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                            className={`h-full w-full object-contain group-hover:scale-105 transition-transform duration-300 ${outOfStock ? 'opacity-50 grayscale' : ''}`}
                             loading="lazy"
                         />
                     ) : (
                         <div className="text-gray-400 font-bold text-xs sm:text-base">
                             {product.name?.charAt(0) || 'P'}
                         </div>
+                    )}
+                    {outOfStock && (
+                        <span className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[9px] sm:text-xs font-bold px-2 py-0.5 sm:py-1 rounded-md">
+                            Out of Stock
+                        </span>
+                    )}
+                    {lowStock && (
+                        <span className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[9px] sm:text-xs font-bold px-2 py-0.5 sm:py-1 rounded-md">
+                            Only {stock} left
+                        </span>
                     )}
                 </div>
 

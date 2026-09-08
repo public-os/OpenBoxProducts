@@ -66,6 +66,7 @@ function Login() {
   // Signup form
   const [suName, setSuName] = useState("");
   const [suUsername, setSuUsername] = useState("");
+  const [suEmail, setSuEmail] = useState("");
   const [suPhone, setSuPhone] = useState("");
   const [suPassword, setSuPassword] = useState("");
   const [suPassword2, setSuPassword2] = useState("");
@@ -128,7 +129,8 @@ function Login() {
         saveTokens(
           { access: data.access, refresh: data.refresh },
           data.user?.username,
-          data.user?.phone
+          data.user?.phone,
+          data.user?.name
         );
         navigate(redirectRef.current, { replace: true });
       } else {
@@ -203,7 +205,8 @@ function Login() {
       saveTokens(
         { access: data.access, refresh: data.refresh },
         data.user?.username || username.trim(),
-        data.user?.phone
+        data.user?.phone,
+        data.user?.name
       );
       navigate(redirectRef.current, { replace: true });
     } catch {
@@ -239,6 +242,7 @@ function Login() {
         body: JSON.stringify({
           name: suName.trim(),
           username: suUsername.trim(),
+          email: suEmail.trim(),
           phone: suPhone,
           password: suPassword,
           password2: suPassword2,
@@ -266,7 +270,8 @@ function Login() {
       saveTokens(
         { access: loginData.access, refresh: loginData.refresh },
         loginData.user?.username || suUsername.trim(),
-        loginData.user?.phone || suPhone
+        loginData.user?.phone || suPhone,
+        loginData.user?.name || suName.trim()
       );
       navigate(redirectRef.current, { replace: true });
     } catch {
@@ -645,6 +650,14 @@ function Login() {
                   autoComplete="username"
                   className={inputClass}
                   required
+                />
+                <input
+                  type="email"
+                  value={suEmail}
+                  onChange={(e) => setSuEmail(e.target.value)}
+                  placeholder="Email (optional — Google login se link hota hai)"
+                  autoComplete="email"
+                  className={inputClass}
                 />
                 <div className="flex items-center gap-1 border border-gray-300 rounded-xl px-4 py-3 focus-within:border-gray-900 focus-within:ring-1 focus-within:ring-gray-900 transition-all">
                   <span className="font-semibold text-gray-900 text-base shrink-0">+91</span>

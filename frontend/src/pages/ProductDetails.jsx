@@ -1,7 +1,7 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
-import { getAccessToken } from '../utils/auth.js';
+import { authFetch, getAccessToken } from '../utils/auth.js';
 import { formatINR } from '../utils/format.js';
 
 // Reusable icon (defined outside the component so it doesn't remount every render)
@@ -15,6 +15,77 @@ const CartIcon = ({ className }) => (
         />
     </svg>
 );
+
+// Out-of-stock product ke liye "Notify Me" — click par owner ke Telegram par
+// product + user info chala jaata hai (backend notify_me). Login zaroori hai.
+function NotifyMe({ productId, compact }) {
+    const navigate = useNavigate();
+    const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
+    const [status, setStatus] = useState('idle'); // idle | sending | sent | error
+    const [message, setMessage] = useState('');
+
+    const handleClick = async () => {
+        if (!getAccessToken()) {
+            // guest user — pehle login, wapas isi product par
+            navigate('/login', { state: { from: `/product/${productId}` } });
+            return;
+        }
+        setStatus('sending');
+        setMessage('');
+        try {
+            const res = await authFetch(`${BASEURL}/api/products/${productId}/notify-me/`, {
+                method: 'POST',
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setStatus('sent');
+                setMessage(data.message || 'Request mil gayi!');
+            } else if (res.status === 401) {
+                // token expire — dobara login
+                setStatus('idle');
+                navigate('/login', { state: { from: `/product/${productId}` } });
+            } else {
+                setStatus('error');
+                setMessage(data.error || 'Could not send request. Please try again.');
+            }
+        } catch {
+            setStatus('error');
+            setMessage('Could not reach the server. Please try again.');
+        }
+    };
+
+    if (status === 'sent') {
+        return (
+            <p className={`flex-1 text-sm font-semibold text-green-700 ${compact ? 'text-center py-2' : 'py-3'}`}>
+                ✓ {message}
+            </p>
+        );
+    }
+
+    if (status === 'error') {
+        return (
+            <div className='flex-1 flex flex-col gap-1'>
+                <button
+                    onClick={handleClick}
+                    className={`w-full bg-blue-600 text-white py-3 text-sm font-bold hover:bg-blue-700 transition cursor-pointer ${compact ? 'rounded-lg' : 'rounded-md'}`}
+                >
+                    🔔 Notify Me
+                </button>
+                <p className='text-xs text-red-600 font-semibold text-center'>{message}</p>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            onClick={handleClick}
+            disabled={status === 'sending'}
+            className={`flex-1 bg-blue-600 text-white py-3 text-sm font-bold hover:bg-blue-700 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${compact ? 'rounded-lg' : 'rounded-md'}`}
+        >
+            {status === 'sending' ? 'Sending…' : '🔔 Notify Me'}
+        </button>
+    );
+}
 
 function ProductDetails() {
     const { id } = useParams();
@@ -124,6 +195,11 @@ function ProductDetails() {
     const numericMrp = Number(product?.mrp);
     const showMrp = hasPrice && Number.isFinite(numericMrp) && numericMrp > numericPrice;
     const discount = showMrp ? Math.round(((numericMrp - numericPrice) / numericMrp) * 100) : 0;
+
+    // Stock states: 0 = out of stock (buttons replace honge), 1-10 = low stock urgency
+    const totalStock = Number(product?.stock) || 0;
+    const outOfStock = !!product && totalStock === 0;
+    const lowStock = !!product && !outOfStock && totalStock <= 10;
 
     // ---------- Image URLs (Thumbnail + Gallery) ----------
     const resolveImageUrl = (img) => {
@@ -239,9 +315,8 @@ function ProductDetails() {
                                                 <button
                                                     key={imgObj.id || idx}
                                                     onClick={() => setSelectedImage(fullUrl)}
-                                                    className={`w-14 h-14 rounded-xl border-2 overflow-hidden p-1 bg-slate-50 transition-all flex-shrink-0 cursor-pointer ${
-                                                        isActive ? 'border-blue-600 ring-2 ring-blue-100' : 'border-gray-200 hover:border-gray-400'
-                                                    }`}
+                                                    className={`w-14 h-14 rounded-xl border-2 overflow-hidden p-1 bg-slate-50 transition-all flex-shrink-0 cursor-pointer ${isActive ? 'border-blue-600 ring-2 ring-blue-100' : 'border-gray-200 hover:border-gray-400'
+                                                        }`}
                                                 >
                                                     <img src={fullUrl} alt="Gallery thumbnail" className="w-full h-full object-contain" />
                                                 </button>
@@ -268,33 +343,42 @@ function ProductDetails() {
                                     )}
                                 </div>
 
-                                {/* Mobile-only Add to Cart button */}
-                                <button
-                                    onClick={handleAddToCart}
-                                    disabled={addingToCart}
-                                    className={`md:hidden text-white px-6 py-2 rounded-lg transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
-                                        justAdded ? 'bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
-                                    }`}
-                                >
-                                    {addingToCart ? 'Adding…' : justAdded ? 'Added ✓' : 'Add to Cart 🛒'}
-                                </button>
+                                {lowStock && (
+                                    <p className='text-sm font-semibold text-orange-600 -mt-4 mb-4'>
+                                        Only {totalStock} left in stock
+                                    </p>
+                                )}
+                                {outOfStock && (
+                                    <p className='text-sm font-semibold text-red-600 -mt-4 mb-4'>
+                                        Out of Stock
+                                    </p>
+                                )}
 
                                 {/* Desktop-only action buttons */}
                                 <div className='hidden md:flex gap-3 mt-4'>
-                                    <button
-                                        onClick={handleAddToCart}
-                                        disabled={addingToCart}
-                                        className='flex-1 bg-white border border-gray-400 rounded-md py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
-                                    >
-                                        {justAdded ? 'Added ✓' : 'Add to cart'}
-                                    </button>
-                                    <button
-                                        onClick={handleBuyNow}
-                                        disabled={addingToCart}
-                                        className='flex-1 bg-gradient-to-b from-yellow-300 to-yellow-400 rounded-md py-3 text-sm font-bold text-gray-900 hover:from-yellow-400 hover:to-yellow-500 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
-                                    >
-                                        {hasPrice ? `Buy at ₹${formatINR(numericPrice)}` : 'Buy now'}
-                                    </button>
+                                    {outOfStock ? (
+                                        <>
+                               
+                                            <NotifyMe productId={product.id} />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button
+                                                onClick={handleAddToCart}
+                                                disabled={addingToCart}
+                                                className='flex-1 bg-white border border-gray-400 rounded-md py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                                            >
+                                                {justAdded ? 'Added ✓' : 'Add to cart'}
+                                            </button>
+                                            <button
+                                                onClick={handleBuyNow}
+                                                disabled={addingToCart}
+                                                className='flex-1 bg-gradient-to-b from-yellow-300 to-yellow-400 rounded-md py-3 text-sm font-bold text-gray-900 hover:from-yellow-400 hover:to-yellow-500 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                                            >
+                                                {hasPrice ? `Buy at ₹${formatINR(numericPrice)}` : 'Buy now'}
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -304,28 +388,41 @@ function ProductDetails() {
 
             {/* ================= Bottom Action Bar (mobile only) ================= */}
             <div className='fixed bottom-0 w-full z-50 bg-white border-t border-gray-200 flex items-center gap-2 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] md:hidden'>
-                <Link
-                    to='/cart'
-                    className='border border-gray-300 rounded-lg p-2.5 text-gray-700 hover:bg-gray-50 transition'
-                    title='Go to Cart'
-                    aria-label='Go to cart'
-                >
-                    <CartIcon className='w-5 h-5' />
-                </Link>
+                {outOfStock ? (
+                    <>
+                        <button
+                            disabled
+                            className='flex-1 bg-gray-200 text-gray-500 rounded-lg py-2 text-center text-sm font-bold cursor-not-allowed'
+                        >
+                            Out of Stock
+                        </button>
+                        <NotifyMe productId={product?.id} compact />
+                    </>
+                ) : (
+                    <>
+                        <button
+                            onClick={handleAddToCart}
+                            disabled={addingToCart}
+                            className='flex-1 bg-white border border-gray-400 rounded-md py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                        >
+                            {justAdded ? 'Added ✓' : 'Add to cart'}
+                        </button>
 
-                {/* Buy Now */}
-                <button
-                    onClick={handleBuyNow}
-                    disabled={!product || addingToCart}
-                    className='flex-1 bg-yellow-400 rounded-lg py-2 text-center hover:bg-yellow-500 transition disabled:opacity-60 disabled:cursor-not-allowed'
-                >
-                    <span className='block text-sm font-bold text-gray-900'>
-                        {addingToCart ? 'Please wait…' : 'Buy now'}
-                    </span>
-                    <span className='block text-xs text-gray-800'>
-                        {hasPrice ? `at ₹${formatINR(numericPrice)}` : 'See price at checkout'}
-                    </span>
-                </button>
+                        {/* Buy Now */}
+                        <button
+                            onClick={handleBuyNow}
+                            disabled={!product || addingToCart}
+                            className='flex-1 bg-yellow-400 rounded-lg py-2 text-center hover:bg-yellow-500 transition disabled:opacity-60 disabled:cursor-not-allowed'
+                        >
+                            <span className='block text-sm font-bold text-gray-900'>
+                                {addingToCart ? 'Please wait…' : 'Buy now'}
+                            </span>
+                            <span className='block text-xs text-gray-800'>
+                                {hasPrice ? `at ₹${formatINR(numericPrice)}` : 'See price at checkout'}
+                            </span>
+                        </button>
+                    </>
+                )}
             </div>
         </div>
     );

@@ -19,6 +19,7 @@ urlpatterns = [
     # Catalog
     path('products/', views.get_products, name='product_list'),
     path('products/<int:pk>/', views.get_product, name='product_detail'),
+    path('products/<int:pk>/notify-me/', views.notify_me, name='product_notify_me'),
     path('categories/', views.get_categories, name='category_list'),
 
     # Cart
@@ -28,8 +29,8 @@ urlpatterns = [
     path('cart/update/', views.update_cart_quantity, name='cart_update'),
 
     # Orders
+    path('orders/', views.my_orders, name='order_list'),
     path('orders/create/', views.create_order, name='order_create'),
-    # TODO: add order history endpoints once views exist, e.g.:
-    # path('orders/', views.list_orders, name='order_list'),
-    # path('orders/<int:pk>/', views.get_order, name='order_detail'),
+    path('orders/<int:pk>/', views.get_order, name='order_detail'),
+    path('orders/<int:pk>/payment/', views.submit_payment, name='order_payment'),
 ]

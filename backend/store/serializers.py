@@ -88,6 +88,8 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=150, trim_whitespace=True)
+    # Optional email — dene par Google Sign-In isi email se account link ho jata hai
+    email = serializers.EmailField(required=False, allow_blank=True)
     phone = serializers.RegexField(
         regex=r'^\d{10}$',
         error_messages={'invalid': 'Mobile number must be exactly 10 digits.'},
@@ -101,7 +103,14 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'name', 'phone', 'password', 'password2']
+        fields = ['username', 'name', 'email', 'phone', 'password', 'password2']
+
+    def validate_email(self, value):
+        # User.email non-unique hai DB level par; Google login email__iexact se
+        # match karta hai, isliye duplicate (case-insensitive) email yahin rok do
+        if value and User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('An account with this email already exists.')
+        return value
 
     def validate(self, data):
         if data['password'] != data['password2']:
@@ -115,6 +124,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             user = User.objects.create_user(
                 username=validated_data['username'],
                 first_name=validated_data.get('name', ''),
+                email=validated_data.get('email', ''),
                 password=validated_data['password'],
             )
             UserProfile.objects.create(user=user, phone=phone)

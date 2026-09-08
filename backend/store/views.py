@@ -1,7 +1,10 @@
+import logging
 import os
 import random
 import requests
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 from django.conf import settings
 from django.contrib.auth import authenticate
@@ -9,6 +12,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -16,12 +20,23 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import ScopedRateThrottle
+
+
+class OtpRateThrottle(ScopedRateThrottle):
+    """ScopedRateThrottle requires throttle_scope; bake it in here."""
+    scope = 'otp'
+
+
+class GoogleRateThrottle(ScopedRateThrottle):
+    scope = 'google'
+
+
 from rest_framework import status, exceptions
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Product, Category, Cart, CartItem, Order, OrderItem, UserProfile, OTPVerification, ProductVariant
+from .models import Product, Category, Cart, CartItem, Order, OrderItem, UserProfile, OTPVerification, ProductVariant, StockAlert
 from .serializers import (
     RegisterSerializer, UserSerializer,
     ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer,
@@ -131,6 +146,17 @@ class LoginSerializer(TokenObtainPairSerializer):
                 'account_inactive',
             )
 
+        # Accounts created via Google sign-in have no usable password
+        # (see google_login: user.set_unusable_password()). Trying to
+        # authenticate them with a password would always fail with a
+        # confusing "Password is incorrect" — give a clearer message
+        # pointing them to Google sign-in instead.
+        if not user.has_usable_password():
+            raise exceptions.AuthenticationFailed(
+                'This account was created with Google sign-in and has no password. Please continue with Google.',
+                'google_account_no_password',
+            )
+
         authenticated_user = authenticate(
             request=self.context.get('request'),
             username=user.username,
@@ -164,7 +190,7 @@ class LoginView(TokenObtainPairView):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@throttle_classes([ScopedRateThrottle])
+@throttle_classes([OtpRateThrottle])
 def forgot_password(request):
     identifier = str(request.data.get('identifier', '')).strip()
     if not identifier:
@@ -207,7 +233,10 @@ def reset_password(request):
         return Response({'error': 'Username/mobile and OTP are required'}, status=400)
 
     user = _find_user_by_identifier(identifier)
-    phone = _user_phone(user) if user else ''
+    if user is None:
+        return Response({'error': 'No account found with that username or mobile number'}, status=404)
+
+    phone = _user_phone(user)
     record = OTPVerification.objects.filter(phone=phone).order_by('-created_at', '-id').first() if phone else None
 
     if not record or record.otp != otp:
@@ -234,7 +263,7 @@ def reset_password(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@throttle_classes([ScopedRateThrottle])
+@throttle_classes([GoogleRateThrottle])
 def google_login(request):
     credential = str(request.data.get('credential', '')).strip()
     if not credential:
@@ -270,7 +299,9 @@ def google_login(request):
         return Response({'error': 'Google account has no email'}, status=400)
 
     with transaction.atomic():
-        user = User.objects.filter(email__iexact=email).first()
+        # order_by('id'): email field non-unique hai, toh kabhi duplicate email ho
+        # toh bhi hamesha sabse pehla (oldest) account mile — predictable behavior
+        user = User.objects.filter(email__iexact=email).order_by('id').first()
         created = False
         if not user:
             base = (email.split('@')[0] or 'google_user').replace('.', '')[:140]
@@ -466,6 +497,57 @@ def remove_from_cart(request):
 # Orders
 # ------------------------------------------------------------------
 
+def _generate_order_ref():
+    """Unique alphanumeric reference sent as the UPI `tr` (transaction ref) param."""
+    while True:
+        ref = f"OB{random.randint(10**9, 10**10 - 1)}"
+        if not Order.objects.filter(order_ref=ref).exists():
+            return ref
+
+
+def _order_response(order):
+    items = []
+    for item in order.items.select_related('product', 'variant').all():
+        image = item.product.display_image
+        items.append({
+            'product': item.product.name,
+            'image': image.url if image else None,
+            'variant': item.variant.color_name if item.variant else None,
+            'quantity': item.quantity,
+            'price': str(item.price),
+            'subtotal': str(item.subtotal),
+        })
+    return {
+        'order_id': order.id,
+        'order_ref': order.order_ref,
+        'total_amount': str(order.total_amount),
+        'status': order.status,
+        'payment_status': order.payment_status,
+        'payment_ref': order.payment_ref,
+        'created_at': order.created_at,
+        'paid_at': order.paid_at,
+        'updated_at': order.updated_at,
+        'shipping_name': order.shipping_name,
+        'shipping_phone': order.shipping_phone,
+        'shipping_address': order.shipping_address,
+        'items': items,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_orders(request):
+    """Account page 'Your Orders' history — newest first."""
+    orders = (
+        Order.objects.filter(user=request.user)
+        .prefetch_related(
+            Prefetch('items', queryset=OrderItem.objects.select_related('product', 'variant'))
+        )
+        .all()
+    )
+    return Response([_order_response(o) for o in orders])
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_order(request):
@@ -519,7 +601,14 @@ def create_order(request):
                 item.quantity * (variants[item.variant_id].final_price if item.variant_id else products[item.product_id].price)
                 for item in cart_items
             )
-            order = Order.objects.create(user=request.user, total_amount=total)
+            order = Order.objects.create(
+                user=request.user,
+                total_amount=total,
+                shipping_name=str(name)[:150],
+                shipping_phone=str(phone)[:15],
+                shipping_address=str(address),
+                order_ref=_generate_order_ref(),
+            )
 
             for item in cart_items:
                 product = products[item.product_id]
@@ -542,8 +631,100 @@ def create_order(request):
 
             cart.items.all().delete()
 
-        return Response({'message': 'Order created successfully', 'order_id': order.id})
+        return Response({
+            'message': 'Order created successfully',
+            'order_id': order.id,
+            'order_ref': order.order_ref,
+            'total_amount': str(order.total_amount),
+        }, status=201)
 
     except Exception:
+        logger.exception("create_order: unexpected error for user %s", request.user.id)
         return Response({'error': 'Could not create order. Please try again.'}, status=500)
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_order(request, pk):
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+    return Response(_order_response(order))
+
+
+# ------------------------------------------------------------------
+# Stock alerts ("Notify me" on out-of-stock products)
+# ------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def notify_me(request, pk):
+    """Out-of-stock product par 'Notify Me' — owner ke Telegram par product +
+    customer info jaata hai, aur request DB mein record hoti hai."""
+    from .telegram import send_telegram_message
+
+    product = get_object_or_404(Product, pk=pk)
+
+    if product.in_stock:
+        return Response({'error': 'Product is already in stock!'}, status=400)
+
+    if StockAlert.objects.filter(product=product, user=request.user).exists():
+        return Response({
+            'message': 'Aapki request already record par hai — stock aate hi update milega.',
+            'telegram_sent': False,
+        })
+
+    profile = UserProfile.objects.filter(user=request.user).first()
+    full_name = request.user.get_full_name() or request.user.username
+    phone = profile.phone if profile else ''
+    email = request.user.email or ''
+
+    text = (
+        "🔔 Notify Me Request\n\n"
+        f"📦 Product: {product.name}\n"
+        f"💰 Price: Rs.{product.price}\n"
+        f"📉 Stock: {product.stock}\n\n"
+        "👤 Customer:\n"
+        f"• Username: {request.user.username}\n"
+        f"• Name: {full_name}\n"
+        f"• Phone: {phone or '—'}\n"
+        f"• Email: {email or '—'}\n"
+        f"• User ID: {request.user.id}\n\n"
+        f"🕐 {timezone.now().strftime('%d %b %Y, %I:%M %p')} (UTC)"
+    )
+    sent = send_telegram_message(text)
+    if not sent:
+        logger.warning(
+            "notify_me: telegram send fail (product=%s user=%s) — request DB mein record hui",
+            product.pk, request.user.pk,
+        )
+
+    StockAlert.objects.create(product=product, user=request.user)
+
+    return Response({
+        'message': 'Request mil gayi! Stock aane par aapko update milega.',
+        'telegram_sent': sent,
+    }, status=201)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_payment(request, pk):
+    """Customer submits the UPI transaction reference (UTR) after paying,
+    so the order moves to 'verifying' until the merchant confirms it in admin."""
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+
+    if order.payment_status == 'paid':
+        return Response({'error': 'This order is already marked as paid'}, status=400)
+
+    utr = str(request.data.get('utr', '')).strip()
+    if not utr.isdigit() or len(utr) < 8 or len(utr) > 22:
+        return Response({'error': 'Enter the UPI reference/UTR number (8-22 digits) from your payment app'}, status=400)
+
+    order.payment_ref = utr
+    order.payment_status = 'verifying'
+    order.save(update_fields=['payment_ref', 'payment_status', 'updated_at'])
+
+    return Response({
+        'message': 'Payment details received. We will verify and confirm your order shortly.',
+        'order_id': order.id,
+        'payment_status': order.payment_status,
+    })

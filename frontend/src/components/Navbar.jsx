@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
-import { getAccessToken, getUsername, clearTokens, authFetch } from '../utils/auth.js';
+import { getAccessToken, getUsername, getUserName, clearTokens, authFetch } from '../utils/auth.js';
 
 // Moved outside Navbar so it isn't re-created (and re-mounted) on every render.
 function SearchInput({ mobile, searchQuery, setSearchQuery }) {
@@ -87,7 +87,8 @@ function Navbar() {
     }, [menuOpen]);
 
     const username = userProfile?.username || getUsername() || 'User';
-    const initial = username.charAt(0).toUpperCase();
+    const displayName = userProfile?.name || getUserName() || username;
+    const initial = displayName.charAt(0).toUpperCase();
 
     const handleProfile = () => {
         setMenuOpen(false);
@@ -137,7 +138,7 @@ function Navbar() {
                                 onClick={() => setMenuOpen((o) => !o)}
                                 aria-expanded={menuOpen}
                                 className='flex items-center justify-center bg-blue-600 text-white rounded-full w-9 h-9 font-bold text-base shadow hover:bg-blue-700 transition-colors'
-                                title={`Logged in as ${username}`}
+                                title={`Logged in as ${displayName}`}
                             >
                                 {initial}
                             </button>
@@ -145,7 +146,7 @@ function Navbar() {
                             {menuOpen && (
                                 <div className='absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1'>
                                     <div className='px-4 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100 truncate'>
-                                        Hi, {username}
+                                        Hi, {displayName}
                                     </div>
 
                                     <button

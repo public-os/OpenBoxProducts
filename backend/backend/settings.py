@@ -68,6 +68,35 @@ SIMPLE_JWT = {
 # Google Sign-In: same client ID as the frontend (VITE_GOOGLE_CLIENT_ID)
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 
+# Email (order notifications via Gmail SMTP).
+# EMAIL_HOST_PASSWORD must be a Google "App Password" (2-Step Verification required),
+# not the regular account password. Credentials live in backend/.env only.
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL') or EMAIL_HOST_USER
+# Jahan order notification email bhejne hain (admin inbox)
+ADMIN_NOTIFICATION_EMAIL = os.getenv('ADMIN_NOTIFICATION_EMAIL', '')
+
+# Telegram bot — "Notify Me" requests owner ke chat par bhejne ke liye.
+# chat_id milane ke liye backend/telegram_bot.py chalao aur bot ko /start bhejo.
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
+
+# Telegram delivery bot — naya order place hone par delivery details (address,
+# phone, items) is bot par bhi jaati hai. Setup same: telegram_bot.py delivery
+TELEGRAM_DELIVERY_BOT_TOKEN = os.getenv('TELEGRAM_DELIVERY_BOT_TOKEN', '')
+TELEGRAM_DELIVERY_CHAT_ID = os.getenv('TELEGRAM_DELIVERY_CHAT_ID', '')
+
+# Credentials missing hain toh emails console par print ho jayenge (dev-only) —
+# warna bina setup ke SMTP errors aate.
+if not (EMAIL_HOST_USER and EMAIL_HOST_PASSWORD):
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -156,7 +185,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+# Set CORS_ALLOW_ALL_ORIGINS=true in backend/.env ONLY for local development.
+# Never enable this in production — use CORS_ALLOWED_ORIGINS instead.
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'false').lower() == 'true'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
