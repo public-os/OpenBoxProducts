@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 import os
 import random
@@ -11,13 +13,14 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.core.files.images import get_image_dimensions
 from django.db import transaction
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -109,6 +112,35 @@ def _find_user_by_identifier(identifier):
 def _user_phone(user):
     profile = UserProfile.objects.filter(user=user).first()
     return profile.phone if profile else ''
+
+
+MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
+AVATAR_CONTENT_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+
+
+def _gravatar_url(email):
+    """Email se public Gravatar avatar URL (?d=404: na hone par 404, frontend default dikhata hai)."""
+    email = (email or '').strip().lower()
+    if not email:
+        return None
+    digest = hashlib.md5(email.encode()).hexdigest()
+    return f"https://www.gravatar.com/avatar/{digest}?s=256&d=404"
+
+
+def _profile_image_data(request, profile):
+    """Profile image ki display priority:
+    upload (user ki pasand) > Google photo > Gravatar (email se fetch) > None (default logo)."""
+    if profile and profile.avatar:
+        return {
+            'profile_image': request.build_absolute_uri(profile.avatar.url),
+            'profile_image_source': 'upload',
+        }
+    if profile and profile.picture:
+        return {'profile_image': profile.picture, 'profile_image_source': 'google'}
+    gravatar = _gravatar_url(request.user.email)
+    if gravatar:
+        return {'profile_image': gravatar, 'profile_image_source': 'gravatar'}
+    return {'profile_image': None, 'profile_image_source': None}
 
 
 # ------------------------------------------------------------------
@@ -318,7 +350,13 @@ def google_login(request):
             user.set_unusable_password()
             user.save()
             created = True
-        UserProfile.objects.get_or_create(user=user)
+    # Google account ki public photo URL save/update — profile fallback isse dikhta hai
+    # (user ka uploaded avatar untouched rehta hai, wo display me pehle aata hai)
+    google_picture = str(info.get('picture') or '')
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    if google_picture and profile.picture != google_picture:
+        profile.picture = google_picture
+        profile.save(update_fields=['picture'])
 
     refresh = RefreshToken.for_user(user)
     return Response({
@@ -367,13 +405,57 @@ def user_profile(request):
         request.user.save()
         profile.save()
 
-    return Response({
+    return Response(_profile_response(request, profile))
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def user_profile_avatar(request):
+    """Profile image upload (multipart `avatar` file) aur remove.
+    Skip ka matlab: koi upload nahi — tab Google photo > Gravatar > default logo dikhega."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+    if request.method == 'DELETE':
+        if profile.avatar:
+            profile.avatar.delete(save=False)
+            profile.avatar = None
+            profile.save(update_fields=['avatar'])
+        return Response(_profile_response(request, profile))
+
+    file = request.FILES.get('avatar')
+    if not file:
+        return Response({'error': 'Please select an image file'}, status=400)
+    if file.size > MAX_AVATAR_BYTES:
+        return Response({'error': 'Image must be 5 MB or smaller'}, status=400)
+    if file.content_type not in AVATAR_CONTENT_TYPES:
+        return Response({'error': 'Only JPG, PNG, WebP or GIF images are allowed'}, status=400)
+
+    try:
+        get_image_dimensions(file)
+    except Exception:
+        return Response({'error': 'This file is not a valid image'}, status=400)
+    finally:
+        file.seek(0)
+
+    # Purani file delete karo warna media/profile_pics/ me orphans jama hote rahenge
+    if profile.avatar:
+        profile.avatar.delete(save=False)
+    profile.avatar = file
+    profile.save(update_fields=['avatar'])
+
+    return Response(_profile_response(request, profile))
+
+
+def _profile_response(request, profile):
+    response = {
         'username': request.user.username,
         'name': request.user.first_name or request.user.username,
         'email': request.user.email,
         'phone': profile.phone,
         'address': profile.address,
-    })
+    }
+    response.update(_profile_image_data(request, profile))
+    return response
 
 
 # ------------------------------------------------------------------
@@ -650,6 +732,79 @@ def get_order(request, pk):
     return Response(_order_response(order))
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_order(request, pk):
+    """Pending order user khud remove kar sakta hai — stock wapas add hota hai
+    (create_order me stock deduct hota hai, payment se pehle nahi)."""
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+
+    if order.status != 'pending':
+        return Response({'error': 'Only pending orders can be removed.'}, status=400)
+
+    try:
+        with transaction.atomic():
+            items = list(order.items.select_related('product', 'variant').all())
+
+            # Stock rows lock karo (create_order jaisa hi pattern)
+            product_ids = [i.product_id for i in items]
+            variant_ids = [i.variant_id for i in items if i.variant_id]
+            products = {
+                p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids)
+            }
+            variants = {
+                v.id: v for v in ProductVariant.objects.select_for_update().filter(id__in=variant_ids)
+            } if variant_ids else {}
+
+            for item in items:
+                if item.variant_id:
+                    variant = variants[item.variant_id]
+                    variant.stock += item.quantity
+                    variant.save()
+                else:
+                    product = products[item.product_id]
+                    product.stock += item.quantity
+                    product.save(update_fields=['stock'])
+
+            order.status = 'cancelled'
+            order.save()
+    except Exception:
+        logger.exception("cancel_order: failed for order %s (user %s)", order.pk, request.user.id)
+        return Response({'error': 'Could not remove order. Please try again.'}, status=500)
+
+    return Response({'message': 'Order removed successfully', 'order': _order_response(order)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_order_shipping(request, pk):
+    """Pending (unpaid) order ka shipping detail user update kar sakta hai —
+    Review & Pay se wapas details step par edit karne par yahi call hota hai.
+    Paid/confirmed order ka address nahi badalta."""
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+
+    if order.status != 'pending' or order.payment_status == 'paid':
+        return Response({'error': 'Only pending orders can be updated.'}, status=400)
+
+    data = request.data
+    name = data.get('name')
+    address = data.get('address')
+    phone = data.get('phone')
+
+    if not name or not address:
+        return Response({'error': 'Name and address are required'}, status=400)
+
+    if not phone or not str(phone).isdigit() or len(str(phone)) < 10:
+        return Response({'error': 'Invalid phone number'}, status=400)
+
+    order.shipping_name = str(name)[:150]
+    order.shipping_phone = str(phone)[:15]
+    order.shipping_address = str(address)
+    order.save(update_fields=['shipping_name', 'shipping_phone', 'shipping_address', 'updated_at'])
+
+    return Response(_order_response(order))
+
+
 # ------------------------------------------------------------------
 # Stock alerts ("Notify me" on out-of-stock products)
 # ------------------------------------------------------------------
@@ -705,26 +860,152 @@ def notify_me(request, pk):
     }, status=201)
 
 
+# ------------------------------------------------------------------
+# Payments (Razorpay gateway)
+# ------------------------------------------------------------------
+# "Payment hua ya nahi" ye sirf gateway hi confirm kar sakta hai. Do proofs:
+#   1. Checkout success callback ka HMAC signature (key secret se hi ban sakta hai)
+#   2. Webhook — Razorpay ka server-to-server call (authoritative, browser band
+#      ho jaye ya network cut ho jaye tab bhi event aata hai)
+
+def _rzp_request(method, path, payload=None):
+    """Razorpay REST API call (key pair basic-auth se)."""
+    return requests.request(
+        method,
+        f"{settings.RAZORPAY_API_BASE}{path}",
+        json=payload or {},
+        auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET),
+        timeout=15,
+    )
+
+
+def _mark_order_paid(order, payment_id):
+    """Order ko paid mark karta hai — idempotent (verify + webhook dono isse
+    call karte hain, double notification nahi hoti). Sirf transition par
+    admin ko notify karta hai."""
+    with transaction.atomic():
+        locked = Order.objects.select_for_update().get(pk=order.pk)
+        if locked.payment_status == 'paid':
+            return False
+        locked.payment_status = 'paid'
+        locked.status = 'paid'
+        locked.payment_ref = str(payment_id)[:30]
+        locked.paid_at = timezone.now()
+        locked.save(update_fields=['payment_status', 'status', 'payment_ref', 'paid_at', 'updated_at'])
+
+    from .signals import notify_order_paid
+    transaction.on_commit(lambda: notify_order_paid(locked.pk))
+    return True
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def submit_payment(request, pk):
-    """Customer submits the UPI transaction reference (UTR) after paying,
-    so the order moves to 'verifying' until the merchant confirms it in admin."""
+def create_payment(request, pk):
+    """Gateway order banata hai (server-side, amount DB se aata hai — client
+    amount badal nahi sakta) aur checkout popup ko chalu karne ki details
+    frontend ko deta hai."""
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        return Response(
+            {'error': 'Payment gateway is not configured yet. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env.'},
+            status=503,
+        )
+
     order = get_object_or_404(Order, pk=pk, user=request.user)
 
     if order.payment_status == 'paid':
-        return Response({'error': 'This order is already marked as paid'}, status=400)
+        return Response({'error': 'This order is already paid'}, status=400)
+    if order.status == 'cancelled':
+        return Response({'error': 'This order is cancelled'}, status=400)
 
-    utr = str(request.data.get('utr', '')).strip()
-    if not utr.isdigit() or len(utr) < 8 or len(utr) > 22:
-        return Response({'error': 'Enter the UPI reference/UTR number (8-22 digits) from your payment app'}, status=400)
+    res = _rzp_request('POST', '/orders', {
+        'amount': int(order.total_amount * 100),  # paise
+        'currency': 'INR',
+        'receipt': order.order_ref,
+        'notes': {'order_id': str(order.id), 'order_ref': order.order_ref},
+    })
+    if res.status_code >= 400:
+        logger.error("create_payment: Razorpay order create fail for order %s: %s", order.pk, res.text[:300])
+        return Response({'error': 'Payment gateway se baat nahi ho payi. Please try again.'}, status=502)
 
-    order.payment_ref = utr
-    order.payment_status = 'verifying'
-    order.save(update_fields=['payment_ref', 'payment_status', 'updated_at'])
+    gateway_order_id = res.json().get('id')
+    if not gateway_order_id:
+        return Response({'error': 'Payment gateway ne valid order nahi diya. Please try again.'}, status=502)
+
+    order.gateway_order_id = gateway_order_id
+    order.save(update_fields=['gateway_order_id', 'updated_at'])
 
     return Response({
-        'message': 'Payment details received. We will verify and confirm your order shortly.',
-        'order_id': order.id,
-        'payment_status': order.payment_status,
+        'key_id': settings.RAZORPAY_KEY_ID,
+        'razorpay_order_id': gateway_order_id,
+        'amount': int(order.total_amount * 100),
+        'currency': 'INR',
+        'order_ref': order.order_ref,
+        'prefill': {
+            'name': order.shipping_name,
+            'contact': order.shipping_phone,
+            'email': request.user.email or '',
+        },
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_payment(request, pk):
+    """Checkout success callback se mile fields ka signature verify karta hai.
+    Verify hone ke baad hi order PAID (placed) hota hai."""
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+
+    rzp_order_id = str(request.data.get('razorpay_order_id', ''))
+    rzp_payment_id = str(request.data.get('razorpay_payment_id', ''))
+    signature = str(request.data.get('razorpay_signature', ''))
+    if not (rzp_order_id and rzp_payment_id and signature):
+        return Response({'error': 'Missing payment verification fields'}, status=400)
+
+    if not order.gateway_order_id or rzp_order_id != order.gateway_order_id:
+        return Response({'error': 'Payment does not belong to this order'}, status=400)
+
+    expected = hmac.new(
+        settings.RAZORPAY_KEY_SECRET.encode(),
+        f"{rzp_order_id}|{rzp_payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        logger.warning("verify_payment: signature mismatch order %s user %s", order.pk, request.user.pk)
+        return Response({'error': 'Payment signature verification failed'}, status=400)
+
+    _mark_order_paid(order, rzp_payment_id)
+    return Response(_order_response(Order.objects.get(pk=order.pk)))
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def razorpay_webhook(request):
+    """Razorpay dashboard me configure hota hai (deployed URL par). Payload ka
+    signature webhook secret se verify hota hai — ye payment ka authoritative
+    source hai, isliye verify_payment miss ho jaye toh bhi order paid ho jata hai."""
+    secret = settings.RAZORPAY_WEBHOOK_SECRET
+    if not secret:
+        return Response({'error': 'Webhook secret not configured'}, status=503)
+
+    signature = request.headers.get('X-Razorpay-Signature', '')
+    expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return Response({'error': 'Invalid webhook signature'}, status=400)
+
+    event = request.data.get('event', '')
+
+    if event in ('payment.captured', 'order.paid'):
+        entity = request.data.get('payload', {}).get('payment', {}).get('entity', {})
+        order = Order.objects.filter(gateway_order_id=entity.get('order_id', '')).first()
+        if order:
+            _mark_order_paid(order, entity.get('id') or order.payment_ref)
+    elif event == 'payment.failed':
+        entity = request.data.get('payload', {}).get('payment', {}).get('entity', {})
+        order = Order.objects.filter(gateway_order_id=entity.get('order_id', '')).first()
+        # paid order kabhi failed me overwrite nahi hoga (double events / retries)
+        if order and order.payment_status == 'pending':
+            order.payment_status = 'failed'
+            order.save(update_fields=['payment_status', 'updated_at'])
+
+    return Response({'status': 'ok'})

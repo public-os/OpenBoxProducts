@@ -10,10 +10,11 @@ import CheckoutPage from './pages/CheckoutPage.jsx';
 import PrivateRoute from './components/PrivateRoute.jsx';
 import Login from './pages/Login.jsx';
 import AccountPage from './pages/AccountPage.jsx';
+import OrderTrackPage from './pages/OrderTrackPage.jsx';
 import HomeNav from './components/HomeNav.jsx';
 
-const NAVBAR_PATHS = ['/cart', '/checkout', '/login', '/search', '/categories'];
-const BOTTOMNAV_PATHS = ['/', '/cart', '/checkout', '/search', '/category', '/categories', '/account'];
+const NAVBAR_PATHS = ['/checkout', '/login', '/search', '/categories'];
+const BOTTOMNAV_PATHS = ['/', '/cart', '/checkout', '/search', '/category', '/categories', '/account', '/orders'];
 const HOMENAV_PATHS = ['/', '/category'];
 
 const matchesNav = (pathname, bases) =>
@@ -43,6 +44,9 @@ function AppContent() {
         <Route path="/login" element={<><ProductList /><Login /></>} />
         <Route element={<PrivateRoute />}>
           <Route path="/account" element={<AccountPage />} />
+        </Route>
+        <Route element={<PrivateRoute />}>
+          <Route path="/orders/:orderId/track" element={<OrderTrackPage />} />
         </Route>
 
       </Routes>

@@ -15,10 +15,9 @@ function ProductCard({ product }) {
     const showMrp = Number.isFinite(price) && price > 0 && Number.isFinite(mrp) && mrp > price;
     const discount = showMrp ? Math.round(((mrp - price) / mrp) * 100) : 0;
 
-    // Stock indicators: 0 = out of stock, 1-10 = low stock urgency
+    // Stock indicator: 0 = out of stock (still used to dim the image)
     const stock = Number(product.stock);
     const outOfStock = stock === 0;
-    const lowStock = !outOfStock && stock <= 10;
 
     return (
         <Link to={`/product/${product.id}`} className="block h-full">
@@ -36,16 +35,6 @@ function ProductCard({ product }) {
                         <div className="text-gray-400 font-bold text-xs sm:text-base">
                             {product.name?.charAt(0) || 'P'}
                         </div>
-                    )}
-                    {outOfStock && (
-                        <span className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[9px] sm:text-xs font-bold px-2 py-0.5 sm:py-1 rounded-md">
-                            Out of Stock
-                        </span>
-                    )}
-                    {lowStock && (
-                        <span className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[9px] sm:text-xs font-bold px-2 py-0.5 sm:py-1 rounded-md">
-                            Only {stock} left
-                        </span>
                     )}
                 </div>
 

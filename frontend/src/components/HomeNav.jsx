@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
-import { getAccessToken, getUsername, clearTokens, authFetch } from '../utils/auth.js';
+import { getAccessToken, getUsername, getUserName, clearTokens, authFetch, saveProfile, PROFILE_EVENT } from '../utils/auth.js';
+import ProfileAvatar from './ProfileAvatar.jsx';
 
 // 'For You' is the home tab; the rest come from the backend so the tabs always
 // match the real categories (the old hardcoded list didn't).
@@ -85,15 +86,22 @@ function HomeNav() {
                 })
                 .then((data) => {
                     setUserProfile(data);
-                    if (data.username) {
-                        localStorage.setItem('username', data.username);
-                    }
+                    saveProfile(data);
                 })
                 .catch((err) => console.error('Error fetching user profile:', err));
         } else {
             queueMicrotask(() => setUserProfile(null));
         }
     }, [token, BASEURL]);
+
+    // Account page se name/email edit hua to DB-fresh data turant greeting me dikhao
+    useEffect(() => {
+        const onProfileUpdated = (e) => {
+            if (e.detail) setUserProfile(e.detail);
+        };
+        window.addEventListener(PROFILE_EVENT, onProfileUpdated);
+        return () => window.removeEventListener(PROFILE_EVENT, onProfileUpdated);
+    }, []);
 
     useEffect(() => {
         if (!menuOpen) return;
@@ -107,7 +115,7 @@ function HomeNav() {
     }, [menuOpen]);
 
     const username = userProfile?.username || getUsername() || 'User';
-    const initial = username.charAt(0).toUpperCase();
+    const displayName = userProfile?.name || getUserName() || username;
 
     const handleProfile = () => {
         setMenuOpen(false);
@@ -156,16 +164,17 @@ function HomeNav() {
                             <button
                                 onClick={() => setMenuOpen((o) => !o)}
                                 aria-expanded={menuOpen}
-                                className='flex items-center justify-center bg-blue-600 text-white rounded-full w-9 h-9 font-bold text-base shadow hover:bg-blue-700 transition-colors'
-                                title={`Logged in as ${username}`}
+                                aria-label={`Account menu for ${displayName}`}
+                                className='rounded-full w-9 h-9 shadow hover:opacity-90 transition-opacity cursor-pointer'
+                                title={`Logged in as ${displayName}`}
                             >
-                                {initial}
+                                <ProfileAvatar src={userProfile?.profile_image} className='w-9 h-9' />
                             </button>
 
                             {menuOpen && (
                                 <div className='absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1'>
                                     <div className='px-4 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100 truncate'>
-                                        Hi, {username}
+                                        Hi, {displayName}
                                     </div>
 
                                     <button
@@ -236,7 +245,7 @@ function HomeNav() {
             </form>
 
             {/* ============ Category Tabs — mobile only ============ */}
-            <nav className='md:hidden flex gap-6 px-4 overflow-x-auto no-scrollbar border-b border-gray-100'>
+            <nav className='flex gap-6 px-4 overflow-x-auto no-scrollbar border-b border-gray-100'>
                 {[FOR_YOU_TAB, ...categories].map((category) => {
                     const href = category === FOR_YOU_TAB
                         ? '/'

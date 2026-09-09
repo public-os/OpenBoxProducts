@@ -1,17 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import { useCart } from "../context/CartContext";
 import { authFetch, getAccessToken } from "../utils/auth.js";
-import { UPI_ID, UPI_NAME, buildUpiLink, isMobileDevice } from "../utils/upi.js";
+import { loadRazorpay } from "../utils/razorpay.js";
 import OrderTracking from "../components/OrderTracking.jsx";
-
-const UPI_APPS = [
-  { id: "gpay", label: "Google Pay", className: "bg-white text-gray-800 border border-gray-300 hover:bg-gray-50" },
-  { id: "phonepe", label: "PhonePe", className: "bg-[#5f259f] text-white hover:bg-[#4b1d7f]" },
-  { id: "paytm", label: "Paytm", className: "bg-[#00baf2] text-white hover:bg-[#00a5d8]" },
-  { id: "upi", label: "Other UPI App", className: "bg-gray-800 text-white hover:bg-gray-700" },
-];
 
 function CheckoutPage() {
   const [form, setForm] = useState({
@@ -22,13 +14,11 @@ function CheckoutPage() {
   });
 
   const [step, setStep] = useState("details"); // details -> pay -> done
-  const [order, setOrder] = useState(null); // {order_id, order_ref, total_amount}
-  const [utr, setUtr] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [order, setOrder] = useState(null); // {order_id, order_ref, total_amount, payment_ref}
+  const [submitting, setSubmitting] = useState(false); // order create ho raha hai
+  const [paying, setPaying] = useState(false); // gateway popup flow chal raha hai
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [trackedOrder, setTrackedOrder] = useState(null); // done step ka live tracking data
-  const isMobile = isMobileDevice();
 
   const nav = useNavigate();
   const location = useLocation();
@@ -45,13 +35,23 @@ function CheckoutPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (isCancelled || !data) return;
-        // Sirf unpaid order resume karo — verifying/paid/cancelled ko chhodo
-        if (data.status === "pending" && data.payment_status !== "verifying") {
+        // Sirf unpaid order resume karo — paid/cancelled ko chhodo
+        if (data.status === "pending" && data.payment_status !== "paid") {
           setOrder({
             order_id: data.order_id,
             order_ref: data.order_ref,
             total_amount: data.total_amount,
+            shipping_name: data.shipping_name,
+            shipping_address: data.shipping_address,
+            shipping_phone: data.shipping_phone,
           });
+          // Form me order ka saved address dikhao — user edit bhi kar sakta hai
+          setForm((prev) => ({
+            ...prev,
+            name: data.shipping_name || prev.name,
+            address: data.shipping_address || prev.address,
+            phone: data.shipping_phone || prev.phone,
+          }));
           setStep("pay");
         }
       })
@@ -85,7 +85,7 @@ function CheckoutPage() {
     };
   }, [BASEURL]);
 
-  // Order place hone ke baad (done step) backend se latest status fetch karo
+  // Order confirm hone ke baad (done step) backend se latest status fetch karo
   useEffect(() => {
     if (step !== "done" || !order?.order_id) return;
     let isCancelled = false;
@@ -110,22 +110,34 @@ function CheckoutPage() {
     setError("");
 
     try {
-      const res = await authFetch(`${BASEURL}/api/orders/create/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(form),
-      });
+      // Pending order se wapas aaye the (back icon / Pay Now) — naya order mat
+      // banao, usi order ka shipping detail update karo. Order create hote hi
+      // cart clear ho chuka hota hai, isliye create "Cart is empty" deta.
+      const isUpdate = Boolean(order?.order_id);
+      const res = await authFetch(
+        isUpdate
+          ? `${BASEURL}/api/orders/${order.order_id}/update-shipping/`
+          : `${BASEURL}/api/orders/create/`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(form),
+        }
+      );
 
       const data = await res.json();
 
       if (res.ok) {
-        clearCart();
+        if (!isUpdate) clearCart();
         setOrder({
           order_id: data.order_id,
           order_ref: data.order_ref,
           total_amount: data.total_amount,
+          shipping_name: data.shipping_name ?? form.name,
+          shipping_address: data.shipping_address ?? form.address,
+          shipping_phone: data.shipping_phone ?? form.phone,
         });
         setStep("pay");
       } else {
@@ -137,79 +149,139 @@ function CheckoutPage() {
     }
   };
 
-  const openUpiApp = (app) => {
-    const link = buildUpiLink({
-      amount: order.total_amount,
-      note: `Order ${order.order_ref}`,
-      txnRef: order.order_ref,
-      app,
-    });
-    window.location.href = link;
-  };
-
-  const submitUtr = async (e) => {
-    e.preventDefault();
+  // Gateway order banake Razorpay checkout popup kholta hai. Success callback
+  // ka signature backend verify karta hai — usi ke baad order PAID hota hai.
+  const startPayment = async () => {
+    if (!order || paying) return;
     setError("");
-    if (!/^\d{8,22}$/.test(utr.trim())) {
-      setError("UPI reference number me 8-22 digits hone chahiye (payment app ki transaction details me milta hai)");
-      return;
-    }
 
-    setSubmitting(true);
+    setPaying(true);
     try {
-      const res = await authFetch(`${BASEURL}/api/orders/${order.order_id}/payment/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ utr: utr.trim() }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setStep("done");
-      } else {
-        setError(data.error || "Could not submit payment details");
+      const loaded = await loadRazorpay();
+      if (!loaded) {
+        setError("Payment gateway load nahi hua — internet check karke dobara try karo.");
+        setPaying(false);
+        return;
       }
-    } catch (err) {
-      console.error("Payment submit error:", err);
-      setError("Could not submit payment details. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
-  const copyUpiId = async () => {
-    try {
-      await navigator.clipboard.writeText(UPI_ID);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard unavailable - user can read the ID on screen
+      const res = await authFetch(
+        `${BASEURL}/api/orders/${order.order_id}/create-payment/`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Payment start nahi ho paya. Please try again.");
+        setPaying(false);
+        return;
+      }
+
+      const rzp = new window.Razorpay({
+        key: data.key_id,
+        amount: data.amount,
+        currency: data.currency,
+        name: "OpenBox",
+        description: `Order ${data.order_ref}`,
+        order_id: data.razorpay_order_id,
+        prefill: {
+          name: data.prefill?.name || form.name,
+          contact: data.prefill?.contact || form.phone,
+          email: data.prefill?.email || "",
+        },
+        theme: { color: "#16a34a" },
+        handler: async (response) => {
+          try {
+            const vres = await authFetch(
+              `${BASEURL}/api/orders/${order.order_id}/verify-payment/`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(response),
+              }
+            );
+            const vdata = await vres.json();
+            if (vres.ok && vdata.payment_status === "paid") {
+              setOrder((prev) => ({
+                ...prev,
+                order_ref: vdata.order_ref,
+                total_amount: vdata.total_amount,
+                payment_ref: vdata.payment_ref,
+              }));
+              setStep("done");
+            } else {
+              setError(
+                vdata.error ||
+                  "Payment ho gaya par verification fail hui. Agar amount kat gaya hai toh Account > Orders me status jaldi update ho jayega."
+              );
+            }
+          } catch {
+            setError(
+              "Payment ho gaya, par confirmation me network issue aaya. Account > Orders me status check karo."
+            );
+          } finally {
+            setPaying(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaying(false);
+            setError(
+              "Payment cancel ho gaya. Order pending hai — 'Pay' dabake dobara try karo, ya baad me Cart page se pay kar sakte ho."
+            );
+          },
+        },
+      });
+
+      rzp.on("payment.failed", () => {
+        setPaying(false);
+        setError("Payment fail ho gaya. Dobara try karo — koi amount kata nahi hai.");
+      });
+
+      rzp.open();
+    } catch (err) {
+      console.error("Payment error:", err);
+      setError("Could not start payment. Please try again.");
+      setPaying(false);
     }
   };
 
   // ------------------------------------------------------------------
-  // Step 3: payment submitted, awaiting verification
+  // Step 3: payment verified — order confirmed
   // ------------------------------------------------------------------
   if (step === "done") {
     return (
       <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
         <div className="max-w-lg mx-auto bg-white p-6 shadow rounded text-center">
-          <div className="w-14 h-14 mx-auto rounded-full bg-green-100 flex items-center justify-center text-3xl">
-            ✓
+          <div className="w-16 h-16 mx-auto rounded-full bg-green-600 flex items-center justify-center">
+            <svg
+              className="w-9 h-9 text-white"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
           </div>
-          <h1 className="text-2xl font-bold mt-4">Payment Verification Pending</h1>
-          <p className="text-gray-600 mt-2">
-            Aapki payment details mil gayi hain. Hum verify karke jaldi confirm karenge.
+          <h1 className="text-2xl font-bold mt-4">Payment Successful!</h1>
+          <p className="text-gray-600 mt-1">
+            Aapka order confirm ho gaya hai — hum jaldi dispatch karenge.
           </p>
           <div className="mt-4 p-3 bg-gray-50 rounded text-sm text-left">
             <p>
               Order ID: <span className="font-semibold">{order?.order_ref}</span>
             </p>
             <p>
-              Amount: <span className="font-semibold">₹{order?.total_amount}</span>
+              Amount Paid:{" "}
+              <span className="font-semibold">₹{order?.total_amount}</span>
             </p>
-            <p>
-              UPI Reference: <span className="font-semibold">{utr}</span>
-            </p>
+            {order?.payment_ref && (
+              <p>
+                Payment ID:{" "}
+                <span className="font-semibold">{order.payment_ref}</span>
+              </p>
+            )}
           </div>
 
           {/* ---------------- Order Tracking ---------------- */}
@@ -241,89 +313,86 @@ function CheckoutPage() {
   }
 
   // ------------------------------------------------------------------
-  // Step 2: pay (desktop = QR code, mobile = UPI app buttons)
+  // Step 2: pay — Razorpay secure checkout popup khulta hai
   // ------------------------------------------------------------------
   if (step === "pay") {
-    const upiLink = buildUpiLink({
-      amount: order.total_amount,
-      note: `Order ${order.order_ref}`,
-      txnRef: order.order_ref,
-    });
-
     return (
       <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
         <div className="max-w-lg mx-auto bg-white p-6 shadow rounded">
-          <h1 className="text-2xl font-bold">Pay ₹{order.total_amount}</h1>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                // Order ka saved address form me wala do — user dekh/edit kar sake
+                setForm((prev) => ({
+                  ...prev,
+                  name: order.shipping_name || prev.name,
+                  address: order.shipping_address || prev.address,
+                  phone: order.shipping_phone || prev.phone,
+                }));
+                setStep("details");
+              }}
+              aria-label="Back to checkout"
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 transition"
+            >
+              <svg
+                className="w-5 h-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <h1 className="text-2xl font-bold">Review & Pay</h1>
+          </div>
           <p className="text-gray-600 text-sm mt-1">
-            Order <span className="font-semibold">{order.order_ref}</span> · UPI me amount pehle se bhara hua aayega
+            Order <span className="font-semibold">{order.order_ref}</span> · Payment
+            ke baad hi order confirm hoga
           </p>
 
-          {UPI_ID === "yourname@upi" && (
-            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-300 rounded text-sm text-yellow-800">
-              ⚠️ Merchant UPI ID set nahi hai — <code>frontend/.env</code> me apni real
-              <code> VITE_UPI_ID</code> daalo, warna payment kahin nahi jayega.
-            </div>
-          )}
-
-          {isMobile ? (
-            /* ---------------- MOBILE: Blinkit jaise app buttons ---------------- */
-            <div className="mt-5 space-y-3">
-              <p className="text-sm font-semibold text-gray-700">Payment app chuno:</p>
-              {UPI_APPS.map((app) => (
-                <button
-                  key={app.id}
-                  onClick={() => openUpiApp(app.id)}
-                  className={`w-full py-3 rounded font-semibold transition ${app.className}`}
-                >
-                  {app.id === "upi" ? `${app.label} (GPay / Paytm / PhonePe...)` : app.label}
-                </button>
-              ))}
-              <p className="text-xs text-gray-500">
-                Tap karte hi payment app khulega. App me correct amount dikhega — sirf UPI PIN daalo.
-              </p>
-            </div>
-          ) : (
-            /* ---------------- DESKTOP: Netflix jaise QR code ---------------- */
-            <div className="mt-5 flex flex-col items-center">
-              <div className="p-4 border-2 border-gray-200 rounded-xl bg-white">
-                <QRCodeSVG value={upiLink} size={220} level="M" />
-              </div>
-              <p className="mt-3 text-sm font-semibold text-gray-700">
-                Kisi bhi UPI app se scan karo
-              </p>
-              <p className="text-xs text-gray-500">Google Pay · PhonePe · Paytm · BHIM</p>
-              <button
-                onClick={copyUpiId}
-                className="mt-3 text-sm text-green-700 underline hover:text-green-800"
-              >
-                {copied ? "UPI ID copied!" : `Ya UPI ID se pay karo: ${UPI_ID}`}
-              </button>
-            </div>
-          )}
-
-          {/* ---------------- Payment confirmation (UTR) ---------------- */}
-          <div className="mt-6 border-t pt-4">
-            <p className="text-sm font-semibold text-gray-700">
-              Pay kar diya? Payment karne ke baad UPI reference number daalo:
+          <div className="mt-4 p-3 bg-gray-50 rounded text-sm text-left space-y-1">
+            <p>
+              Order ID: <span className="font-semibold">{order.order_ref}</span>
             </p>
-            <form onSubmit={submitUtr} className="mt-2 space-y-3">
-              <input
-                value={utr}
-                onChange={(e) => setUtr(e.target.value.replace(/\D/g, ""))}
-                placeholder="12-digit UPI Reference / UTR number"
-                inputMode="numeric"
-                required
-                className="w-full p-2 border rounded"
-              />
-              {error && <p className="text-red-600 text-sm">{error}</p>}
-              <button
-                disabled={submitting}
-                className="w-full bg-green-600 text-white py-2 rounded font-semibold hover:bg-green-700 transition disabled:opacity-60"
-              >
-                {submitting ? "Submitting..." : "I Have Paid"}
-              </button>
-            </form>
+            <p>
+              Amount:{" "}
+              <span className="font-semibold">₹{order.total_amount}</span>
+            </p>
+            <p>
+              Delivery:{" "}
+              <span className="font-semibold">
+                {order.shipping_name}, {order.shipping_phone}
+              </span>
+            </p>
+            <p className="text-gray-600">{order.shipping_address}</p>
           </div>
+
+          <p className="mt-3 text-xs text-gray-500">
+            🔒 Payment Razorpay ke secure checkout se — UPI (GPay / PhonePe /
+            Paytm), cards aur wallets sab supported.
+          </p>
+
+          {error && <p className="mt-3 text-red-600 text-sm">{error}</p>}
+
+          <button
+            onClick={startPayment}
+            disabled={paying}
+            className="mt-4 w-full bg-green-600 text-white py-2.5 rounded font-semibold hover:bg-green-700 transition disabled:opacity-60"
+          >
+            {paying ? "Opening payment…" : `Pay ₹${order.total_amount} Securely`}
+          </button>
+          <button
+            onClick={() => nav("/cart")}
+            className="mt-2 w-full border border-gray-300 text-gray-800 py-2 rounded font-semibold hover:bg-gray-50 transition"
+          >
+            Back to Cart
+          </button>
         </div>
       </div>
     );
@@ -335,7 +404,15 @@ function CheckoutPage() {
   return (
     <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
       <div className="max-w-lg mx-auto bg-white p-6 shadow rounded">
-        <h1 className="text-2xl font-bold mb-4">Checkout</h1>
+        <h1 className="text-2xl font-bold mb-1">Checkout</h1>
+        {order ? (
+          <p className="text-gray-600 text-sm mb-4">
+            Order <span className="font-semibold">{order.order_ref}</span> pending hai —
+            address check/update karke aage badho
+          </p>
+        ) : (
+          <p className="mb-4" />
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
@@ -366,13 +443,22 @@ function CheckoutPage() {
           />
 
           <div className="p-3 border rounded bg-gray-50 text-sm text-gray-700">
-            💳 Payment: <span className="font-semibold">UPI (Google Pay / PhonePe / Paytm)</span>
+            💳 Payment: <span className="font-semibold">UPI / Cards / Wallets (Razorpay)</span>
           </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <button className="w-full bg-green-600 text-white py-2 rounded font-semibold hover:bg-green-700 transition">
-            Place Order & Pay
+          <button
+            disabled={submitting}
+            className="w-full bg-green-600 text-white py-2 rounded font-semibold hover:bg-green-700 transition disabled:opacity-60"
+          >
+            {submitting
+              ? order
+                ? "Updating…"
+                : "Placing Order…"
+              : order
+                ? "Update & Continue to Pay"
+                : "Proceed to Pay"}
           </button>
         </form>
       </div>

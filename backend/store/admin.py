@@ -17,12 +17,12 @@ class OrderAdmin(admin.ModelAdmin):
         'payment_ref', 'status', 'shipping_phone', 'created_at', 'updated_at',
     )
     list_filter = ('payment_status', 'status')
-    search_fields = ('order_ref', 'payment_ref', 'user__username', 'shipping_phone', 'shipping_name')
-    readonly_fields = ('order_ref', 'created_at', 'paid_at', 'updated_at')
+    search_fields = ('order_ref', 'payment_ref', 'gateway_order_id', 'user__username', 'shipping_phone', 'shipping_name')
+    readonly_fields = ('order_ref', 'gateway_order_id', 'created_at', 'paid_at', 'updated_at')
     list_editable = ('status',)
     actions = ['mark_as_paid']
 
-    @admin.action(description='Mark selected orders as Paid (verify UTR in your UPI app first)')
+    @admin.action(description='Mark selected orders as Paid (gateway verify kar chuka hai — sirf edge cases ke liye)')
     def mark_as_paid(self, request, queryset):
         from django.utils import timezone
         updated = queryset.update(

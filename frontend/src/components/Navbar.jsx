@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
-import { getAccessToken, getUsername, getUserName, clearTokens, authFetch } from '../utils/auth.js';
+import { getAccessToken, getUsername, getUserName, clearTokens, authFetch, saveProfile, PROFILE_EVENT } from '../utils/auth.js';
+import ProfileAvatar from './ProfileAvatar.jsx';
 
 // Moved outside Navbar so it isn't re-created (and re-mounted) on every render.
 function SearchInput({ mobile, searchQuery, setSearchQuery }) {
@@ -65,15 +66,22 @@ function Navbar() {
                 })
                 .then((data) => {
                     setUserProfile(data);
-                    if (data.username) {
-                        localStorage.setItem("username", data.username);
-                    }
+                    saveProfile(data);
                 })
                 .catch((err) => console.error('Error fetching user profile:', err));
         } else {
             queueMicrotask(() => setUserProfile(null));
         }
     }, [token, BASEURL]);
+
+    // Account page se name/email edit hua to DB-fresh data turant greeting me dikhao
+    useEffect(() => {
+        const onProfileUpdated = (e) => {
+            if (e.detail) setUserProfile(e.detail);
+        };
+        window.addEventListener(PROFILE_EVENT, onProfileUpdated);
+        return () => window.removeEventListener(PROFILE_EVENT, onProfileUpdated);
+    }, []);
 
     useEffect(() => {
         if (!menuOpen) return;
@@ -88,7 +96,6 @@ function Navbar() {
 
     const username = userProfile?.username || getUsername() || 'User';
     const displayName = userProfile?.name || getUserName() || username;
-    const initial = displayName.charAt(0).toUpperCase();
 
     const handleProfile = () => {
         setMenuOpen(false);
@@ -137,10 +144,11 @@ function Navbar() {
                             <button
                                 onClick={() => setMenuOpen((o) => !o)}
                                 aria-expanded={menuOpen}
-                                className='flex items-center justify-center bg-blue-600 text-white rounded-full w-9 h-9 font-bold text-base shadow hover:bg-blue-700 transition-colors'
+                                aria-label={`Account menu for ${displayName}`}
+                                className='rounded-full w-9 h-9 shadow hover:opacity-90 transition-opacity cursor-pointer'
                                 title={`Logged in as ${displayName}`}
                             >
-                                {initial}
+                                <ProfileAvatar src={userProfile?.profile_image} className='w-9 h-9' />
                             </button>
 
                             {menuOpen && (

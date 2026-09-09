@@ -90,6 +90,16 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 TELEGRAM_DELIVERY_BOT_TOKEN = os.getenv('TELEGRAM_DELIVERY_BOT_TOKEN', '')
 TELEGRAM_DELIVERY_CHAT_ID = os.getenv('TELEGRAM_DELIVERY_CHAT_ID', '')
 
+# Razorpay payment gateway — checkout sirf verified payment ke baad confirm hota hai.
+# Key pair dashboard.se razrpay.com > Settings > API Keys se milta hai (test keys first).
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
+# Dashboard > Settings > Webhooks me webhook add karte waqt set kiya hua secret
+# (webhook payload ka signature isi se verify hota hai).
+RAZORPAY_WEBHOOK_SECRET = os.getenv('RAZORPAY_WEBHOOK_SECRET', '')
+# API base override sirf e2e testing ke liye (local fake gateway) — prod me default rehne do
+RAZORPAY_API_BASE = os.getenv('RAZORPAY_API_BASE', 'https://api.razorpay.com/v1')
+
 # Credentials missing hain toh emails console par print ho jayenge (dev-only) —
 # warna bina setup ke SMTP errors aate.
 if not (EMAIL_HOST_USER and EMAIL_HOST_PASSWORD):

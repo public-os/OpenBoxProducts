@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { saveTokens } from "../utils/auth.js";
+import AvatarPickerModal from "../components/AvatarPickerModal.jsx";
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
@@ -273,7 +274,8 @@ function Login() {
         loginData.user?.phone || suPhone,
         loginData.user?.name || suName.trim()
       );
-      navigate(redirectRef.current, { replace: true });
+      // Signup ke baad profile photo setup — Skip (default logo) ya Save (upload)
+      setView("avatar");
     } catch {
       setErrorMsg("Could not reach the server. Please try again.");
     } finally {
@@ -446,7 +448,10 @@ function Login() {
 
   const handleBackArrow = () => {
     setErrorMsg("");
-    if (view === "forgot") {
+    if (view === "avatar") {
+      // Photo setup chhoda — baad me Account page se set ho jayega
+      navigate(redirectRef.current, { replace: true });
+    } else if (view === "forgot") {
       if (forgotStep === "reset") {
         setForgotStep("otp");
         autoAdvanceRef.current = otpDigits.every((d) => d !== "");
@@ -470,6 +475,20 @@ function Login() {
           ? "Back"
           : "Back to login"
       : "Close";
+
+  // Post-signup profile photo setup — login card ki jagah sirf picker dikhata hai.
+  // Ye return `titles[view]` destructure se UPAR hona chahiye, warna view="avatar"
+  // par titles lookup undefined reh jata hai aur Login crash hota hai.
+  if (view === "avatar") {
+    return (
+      <AvatarPickerModal
+        mode="setup"
+        currentImage={null}
+        onClose={() => navigate(redirectRef.current, { replace: true })}
+        onSaved={() => navigate(redirectRef.current, { replace: true })}
+      />
+    );
+  }
 
   const titles = {
     login: { title: "Welcome to OpenBoxShop", sub: "Login to continue shopping" },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useParams, useSearchParams, useLocation, Link } from "react-router-dom";
 import ProductCard from "../components/ProductCard.jsx";
 import Footer from "../components/Footer.jsx";
@@ -40,6 +40,20 @@ function ProductList() {
     useEffect(() => {
         setShowAll(false);
     }, [location.pathname, location.search]);
+
+    // Header (HomeNav/Navbar) fixed hai — uski real height naap ke content usi ke
+    // neeche rakho. Hardcoded pt se content header ke peeche chhup jata tha jab
+    // category tabs desktop pe bhi dikhne lage.
+    const [headerPad, setHeaderPad] = useState(isHome ? 160 : 152);
+    useLayoutEffect(() => {
+        const measure = () => {
+            const header = document.querySelector('header');
+            setHeaderPad(header ? header.offsetHeight + 16 : (isHome ? 160 : 152));
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, [isHome]);
 
     // Screen resize par initial count update (3→4→5→6 columns ke liye)
     useEffect(() => {
@@ -121,9 +135,8 @@ function ProductList() {
     return (
         // md:pb-10 → desktop pe footer ke neeche gray strip dikhegi (wrapper ka bg-gray-400)
         <div
-            className={`min-h-[100dvh] bg-gray-400 text-gray-800 md:pt-1 md:pb-10 flex flex-col ${
-                isHome ? 'pt-40' : 'pt-38'
-            }`}
+            className="min-h-[100dvh] bg-gray-400 text-gray-800 md:pb-10 flex flex-col"
+            style={{ paddingTop: headerPad }}
         >
             {/* flex-1: saara content ye div me — footer ko bottom tak dhakelta hai */}
             <div className='flex-1'>
@@ -187,7 +200,7 @@ function ProductList() {
                     )}
 
                     {(heading || slug || query) && (
-                        <div className="pt-4 md:pt-24 px-4">
+                        <div className="pt-4 md:pt-2 px-4">
                             <h1 className="text-xl sm:text-2xl font-bold capitalize">{heading || "Products"}</h1>
                             <p className="text-sm text-gray-700 mt-1">
                                 {filtered.length} product{filtered.length === 1 ? "" : "s"} found

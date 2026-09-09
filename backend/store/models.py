@@ -168,6 +168,8 @@ class UserProfile(models.Model):
     phone = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
     picture = models.URLField(blank=True)  # Google profile photo URL
+    # User ki khud upload ki hui profile image (Google/Gravatar fallbacks se pehle dikhti hai)
+    avatar = models.ImageField(upload_to='profile_pics/', blank=True, null=True)
 
     def __str__(self):
         return self.user.username
@@ -208,12 +210,13 @@ class Order(models.Model):
     shipping_phone = models.CharField(max_length=15, blank=True)
     shipping_address = models.TextField(blank=True)
 
-    # Direct UPI payment tracking
-    order_ref = models.CharField(max_length=20, unique=True, blank=True)  # sent as UPI `tr`
+    # Payment gateway (Razorpay) tracking
+    order_ref = models.CharField(max_length=20, unique=True, blank=True)  # receipt id for the gateway order
+    gateway_order_id = models.CharField(max_length=64, blank=True, db_index=True)  # razorpay `order_xxx`
     payment_status = models.CharField(
         max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending', db_index=True
     )
-    payment_ref = models.CharField(max_length=22, blank=True)  # UTR entered by customer
+    payment_ref = models.CharField(max_length=30, blank=True)  # gateway payment id (`pay_xxx`)
     paid_at = models.DateTimeField(null=True, blank=True)
     # Order tracking: jab bhi status/payment update ho, ye field refresh hoti hai
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)

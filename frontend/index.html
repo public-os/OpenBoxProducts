@@ -5,6 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <script>
+      // TEMP DEBUG: app crash diagnose karne ke liye (baad me hata dena)
+      window.addEventListener('error', function (e) {
+        try { localStorage.setItem('__app_error', String((e.error && e.error.stack) || e.message)); } catch (_) {}
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        try { localStorage.setItem('__app_error', 'REJECTION ' + String((e.reason && e.reason.stack) || e.reason)); } catch (_) {}
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

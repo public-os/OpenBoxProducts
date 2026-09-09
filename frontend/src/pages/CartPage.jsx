@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useCart } from "../context/CartContext";
 import { Link, useNavigate } from "react-router-dom";
 import { authFetch, getAccessToken } from "../utils/auth.js";
@@ -18,100 +18,131 @@ const PAYMENT_LABELS = {
     failed: "Payment Failed",
 };
 
+const ORDER_BADGES = {
+    verifying: "bg-blue-100 text-blue-800",
+    paid: "bg-green-100 text-green-800",
+    shipped: "bg-blue-100 text-blue-800",
+    delivered: "bg-green-100 text-green-800",
+    cancelled: "bg-red-100 text-red-700",
+};
+
+const ORDER_LABELS = {
+    verifying: "Verifying Payment",
+    paid: "Confirmed",
+    shipped: "Shipped",
+    delivered: "Delivered",
+    cancelled: "Cancelled",
+};
+
 function CartPage() {
     const { cartItems, total, removeFromCart, updateQuantity } = useCart();
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
     const nav = useNavigate();
 
-    // Sirf pending (unpaid) orders — null = loading / logged out, [] = koi pending nahi
-    const [pendingOrders, setPendingOrders] = useState(null);
+    // User ke saare orders — null = loading / logged out, [] = kuch nahi.
+    // Status ke hisaab se sections derive hote hai: pending (payment baaki),
+    // active (payment ho gaya, delivery chal rahi hai), delivered (history).
+    const [orders, setOrders] = useState(null);
+    // Jis pending order ka remove chal raha hai uska id (button disable ke liye)
+    const [removingId, setRemovingId] = useState(null);
 
-    useEffect(() => {
-        if (!getAccessToken()) return;
-        let isCancelled = false;
-        authFetch(`${BASEURL}/api/orders/`)
+    const loadOrders = useCallback(() => {
+        if (!getAccessToken()) return Promise.resolve();
+        return authFetch(`${BASEURL}/api/orders/`)
             .then((res) => (res.ok ? res.json() : []))
-            .then((orders) => {
-                if (!isCancelled) {
-                    setPendingOrders(orders.filter((o) => o.status === "pending"));
-                }
+            .then((data) => {
+                setOrders(data);
             })
             .catch(() => {
-                if (!isCancelled) setPendingOrders([]);
+                setOrders([]);
             });
-        return () => {
-            isCancelled = true;
-        };
     }, [BASEURL]);
 
+    useEffect(() => {
+        loadOrders();
+    }, [loadOrders]);
+
+    // Pending = sirf wo orders jinpe user ko abhi Pay Now karna hai.
+    // Verifying (UTR submit ho chuka, admin verification baaki) aur paid
+    // payment wale active side me dikhte hai — unme user ka koi action nahi.
+    const pendingOrders = orders
+        ? orders.filter(
+            (o) =>
+                o.status === "pending" &&
+                o.payment_status !== "verifying" &&
+                o.payment_status !== "paid"
+        )
+        : null;
+    const activeOrders = orders
+        ? orders.filter(
+            (o) =>
+                o.status === "paid" ||
+                o.status === "shipped" ||
+                (o.status === "pending" &&
+                    (o.payment_status === "verifying" || o.payment_status === "paid"))
+        )
+        : [];
+    // History = delivered + cancelled — Blinkit-style list me CartPage par hi dikhte hai
+    const historyOrders = orders
+        ? orders.filter((o) => o.status === "delivered" || o.status === "cancelled")
+        : [];
+
+    // Pending order remove — backend par cancel hota hai, stock wapas add ho jata hai
+    const handleRemoveOrder = async (orderId) => {
+        if (!window.confirm("Remove this pending order?")) return;
+        setRemovingId(orderId);
+        try {
+            const res = await authFetch(`${BASEURL}/api/orders/${orderId}/cancel/`, {
+                method: "POST",
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.error || "Could not remove order.");
+                return;
+            }
+            await loadOrders();
+        } catch (error) {
+            console.error("Error removing order:", error);
+            alert("Could not remove order. Please try again.");
+        } finally {
+            setRemovingId(null);
+        }
+    };
+
     return (
-        <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-center pt-8 lg:pt-10 md:pt-10 sm:pt-18 pb-4 sm:pb-3">
-                🛒 Your Cart
-            </h1>
+        <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-20 sm:pb-20 pb-20 md:pb-8">
+            <nav className="bg-blue-100 fixed top-0 left-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5">
+                {/* Back Arrow */}
+                <button
+                    onClick={() => nav(-1)}
+                    className="w-9 h-9 flex items-center justify-center text-gray-800 hover:text-blue-600 transition-colors"
+                    title="Back"
+                    aria-label="Go back"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                </button>
 
-            {/* ---------- Pending Orders: payment baaki hai ---------- */}
-            {pendingOrders && pendingOrders.length > 0 && (
-                <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
-                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
-                        ⏳ Pending Orders
-                        <span className="ml-2 text-sm font-normal text-gray-500">
-                            payment complete karna baaki hai
-                        </span>
-                    </h2>
-                    {pendingOrders.map((order) => {
-                        const payAllowed =
-                            order.payment_status !== "paid" &&
-                            order.payment_status !== "verifying";
-                        return (
-                            <div
-                                key={order.order_id}
-                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
-                            >
-                                <div className="min-w-0">
-                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
-                                    <p className="text-xs text-gray-500">
-                                        Placed: {formatDateTime(order.created_at)}
-                                    </p>
-                                    <span
-                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                            PAYMENT_BADGES[order.payment_status] ||
-                                            "bg-gray-100 text-gray-700"
-                                        }`}
-                                    >
-                                        {PAYMENT_LABELS[order.payment_status] || order.payment_status}
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-4 shrink-0">
-                                    <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
-                                    {payAllowed ? (
-                                        <button
-                                            onClick={() =>
-                                                nav("/checkout", {
-                                                    state: { resumeOrderId: order.order_id },
-                                                })
-                                            }
-                                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm font-semibold"
-                                        >
-                                            Pay Now
-                                        </button>
-                                    ) : (
-                                        <Link
-                                            to="/account"
-                                            className="text-blue-600 hover:underline text-sm"
-                                        >
-                                            Track Order
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
+                <p className="text-center">Your Cart</p>
 
+                {/* Home icon — sirf desktop par */}
+                <Link
+                    to="/"
+                    className="hidden md:flex w-9 h-9 items-center justify-center text-gray-800 hover:text-blue-600 transition-colors"
+                    title="Home"
+                    aria-label="Go to home"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l9-9 9 9" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" />
+                    </svg>
+                </Link>
+                {/* mobile par placeholder — title centered rahe */}
+                <div className="w-9 h-9 md:hidden"></div>
+            </nav>
             {cartItems.length === 0 ? (
-                <div className="text-center pb-1">
+                <div className="text-center mb-6">
                     <p className="text-gray-600 text-base sm:text-lg">
                         Your cart is empty.
                     </p>
@@ -123,7 +154,7 @@ function CartPage() {
                     </Link>
                 </div>
             ) : (
-                <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                <div className="mb-6 max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
                     {cartItems.map((item) => {
                         const name = item.product_name || item.name;
                         const price = item.product_price || item.price;
@@ -204,7 +235,199 @@ function CartPage() {
                         </Link>
                     </div>
                 </div>
+            )} 
+
+            {/* ---------- Pending Orders: payment baaki hai ---------- */}
+            {pendingOrders && pendingOrders.length > 0 && (
+                <div className="max-w-4xl mx-auto mt-6 mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
+                        ⏳ Pending Orders
+                        <span className="ml-2 text-sm font-normal text-gray-500">
+                            payment complete karna baaki hai
+                        </span>
+                    </h2>
+                    {pendingOrders.map((order) => {
+                        const payAllowed =
+                            order.payment_status !== "paid" &&
+                            order.payment_status !== "verifying";
+                        return (
+                            <div
+                                key={order.order_id}
+                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
+                            >
+                                <div className="min-w-0">
+                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                    <p className="text-xs text-gray-500">
+                                        Placed: {formatDateTime(order.created_at)}
+                                    </p>
+                                    <span
+                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${PAYMENT_BADGES[order.payment_status] ||
+                                            "bg-gray-100 text-gray-700"
+                                            }`}
+                                    >
+                                        {PAYMENT_LABELS[order.payment_status] || order.payment_status}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-4 shrink-0">
+                                    <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
+                                    {payAllowed ? (
+                                        <>
+                                            <button
+                                                onClick={() =>
+                                                    nav("/checkout", {
+                                                        state: { resumeOrderId: order.order_id },
+                                                    })
+                                                }
+                                                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm font-semibold"
+                                            >
+                                                Pay Now
+                                            </button>
+                                            <button
+                                                onClick={() => handleRemoveOrder(order.order_id)}
+                                                disabled={removingId === order.order_id}
+                                                className="text-red-500 hover:text-red-700 text-sm sm:text-base transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                {removingId === order.order_id ? "Removing…" : "Remove"}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <Link
+                                            to={`/orders/${order.order_id}/track`}
+                                            className="text-blue-600 hover:underline text-sm"
+                                        >
+                                            Track Order
+                                        </Link>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             )}
+
+            {/* ---------- Active Orders: payment ho gaya, delivery chal rahi hai ---------- */}
+            {activeOrders.length > 0 && (
+                <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
+                        🚚 Active Orders
+                        <span className="ml-2 text-sm font-normal text-gray-500">
+                            payment ho gaya, delivery raaste me hai
+                        </span>
+                    </h2>
+                    {activeOrders.map((order) => {
+                        // Verifying order ka status abhi bhi 'pending' hota hai —
+                        // badge ke liye payment state zyada sahi hai
+                        const stateKey =
+                            order.status === "pending" && order.payment_status === "verifying"
+                                ? "verifying"
+                                : order.status;
+                        return (
+                            <div
+                                key={order.order_id}
+                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
+                            >
+                                <div className="min-w-0">
+                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                    <p className="text-xs text-gray-500">
+                                        Placed: {formatDateTime(order.created_at)}
+                                    </p>
+                                    <span
+                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${ORDER_BADGES[stateKey] || "bg-gray-100 text-gray-700"
+                                            }`}
+                                    >
+                                        {ORDER_LABELS[stateKey] || stateKey}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-4 shrink-0">
+                                    <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
+                                    <Link
+                                        to={`/orders/${order.order_id}/track`}
+                                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-semibold"
+                                    >
+                                        Track Order
+                                    </Link>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ---------- Order History: delivered/cancelled — row click par full details ---------- */}
+            {historyOrders.length > 0 && (
+                <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
+                        📜 Order History
+                        <span className="ml-2 text-sm font-normal text-gray-500">
+                            order par click karke poori detail dekho
+                        </span>
+                    </h2>
+                    <div className="divide-y divide-gray-200">
+                        {historyOrders.map((order) => {
+                            // Pehle 3 items ki thumbnails (Blinkit jaisa overlap cluster)
+                            const thumbs = order.items.slice(0, 3);
+                            const extra = order.items.length - thumbs.length;
+                            return (
+                                <Link
+                                    key={order.order_id}
+                                    to={`/orders/${order.order_id}/track`}
+                                    className="flex items-center gap-4 py-4 hover:bg-gray-50 transition rounded-lg px-2 -mx-2"
+                                >
+                                    <div className="flex -space-x-3 shrink-0">
+                                        {thumbs.map((item, i) => {
+                                            const img = item.image;
+                                            const src = img
+                                                ? img.startsWith("http")
+                                                    ? img
+                                                    : `${BASEURL}${img.startsWith("/") ? "" : "/"}${img}`
+                                                : null;
+                                            return src ? (
+                                                <img
+                                                    key={i}
+                                                    src={src}
+                                                    alt={item.product}
+                                                    className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm"
+                                                />
+                                            ) : (
+                                                <span
+                                                    key={i}
+                                                    className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm bg-gray-100 flex items-center justify-center text-sm"
+                                                >
+                                                    📦
+                                                </span>
+                                            );
+                                        })}
+                                        {extra > 0 && (
+                                            <span className="w-12 h-12 rounded-full border-2 border-white shadow-sm bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold">
+                                                +{extra}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Placed: {formatDateTime(order.created_at)} ·{" "}
+                                            {order.items.length} item{order.items.length > 1 ? "s" : ""}
+                                        </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
+                                        <span
+                                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                                ORDER_BADGES[order.status] || "bg-gray-100 text-gray-700"
+                                            }`}
+                                        >
+                                            {ORDER_LABELS[order.status] || order.status}
+                                        </span>
+                                    </div>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+
         </div>
     );
 }

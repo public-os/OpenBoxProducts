@@ -16,6 +16,21 @@ const notifyAuthChanged = () => {
 export const getUsername = () => localStorage.getItem('username') || null;
 export const getUserName = () => localStorage.getItem('user_name') || localStorage.getItem('username') || null;
 
+// Fired whenever a DB-fresh profile response arrives (account page load/save,
+// avatar save) so mounted navbars can update their greeting without a reload.
+export const PROFILE_EVENT = 'profile-updated';
+
+export const saveProfile = (data) => {
+  if (!data) return;
+  if (data.username) localStorage.setItem('username', data.username);
+  if (data.name) localStorage.setItem('user_name', data.name);
+  try {
+    window.dispatchEvent(new CustomEvent(PROFILE_EVENT, { detail: data }));
+  } catch {
+    // window not available (e.g. during HMR teardown) — ignore
+  }
+};
+
 export const saveTokens = (tokens, username, phone, name) => {
   if (tokens.access) localStorage.setItem('access_token', tokens.access);
   if (tokens.refresh) localStorage.setItem('refresh_token', tokens.refresh);
@@ -66,7 +81,11 @@ const refreshAccessToken = async () => {
 export const authFetch = async (url, options = {}) => {
   let token = getAccessToken();
   const headers = options.headers ? { ...options.headers } : {};
-  headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  // FormData (file upload) par browser khud boundary ke sath Content-Type set karta hai —
+  // yahan application/json force karne se upload toot jata hai
+  if (!headers['Content-Type'] && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let response = await fetch(url, { ...options, headers });
