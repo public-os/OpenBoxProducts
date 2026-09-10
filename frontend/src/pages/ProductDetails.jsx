@@ -1,8 +1,27 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { authFetch, getAccessToken } from '../utils/auth.js';
 import { formatINR } from '../utils/format.js';
+import { sortReviews } from '../utils/reviews.js';
+import { useVipStatus } from '../utils/useVip.js';
+import RatingStars from '../components/RatingStars.jsx';
+import ReviewItem from '../components/ReviewItem.jsx';
+
+// Rating badge/reviews list isi threshold par dikhte hain — 10 se kam reviews par hidden.
+// Write-review form phir bhi available rehta hai taki reviews accumulate ho sakein.
+const MIN_REVIEWS_TO_SHOW = 10;
+
+const STAR_PATH =
+    'M12 2l2.9 6.26 6.86.6-5.2 4.51 1.56 6.72L12 16.5l-6.12 3.59 1.56-6.72-5.2-4.51 6.86-.6L12 2z';
+
+const RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
+
+// Reviews ke andar ab koi scrolling nahi — dono viewports par limited preview
+// dikhta hai, baaki "Read more reviews" button ke alag page par. Mobile kam dikhata hai.
+const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
+const PREVIEW_REVIEWS_DESKTOP = 5;
+const PREVIEW_REVIEWS_MOBILE = 3;
 
 // Reusable icon (defined outside the component so it doesn't remount every render)
 const CartIcon = ({ className }) => (
@@ -90,6 +109,7 @@ function NotifyMe({ productId, compact }) {
 function ProductDetails() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
 
     // ---------- State ----------
@@ -106,12 +126,46 @@ function ProductDetails() {
 
     const { addToCart, cartItems } = useCart();
     const cartItemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+    // VIP user — blue tick wale reviews pin/delete kar sakta hai
+    const isVip = useVipStatus(BASEURL);
+
+    // ---------- Reviews (Blinkit-style) ----------
+    const [reviews, setReviews] = useState([]);
+    // Review submit hone par API fresh aggregates lautaata hai — product refetch
+    // (loading flash + image reset se bachne ke liye) ke bina badge update karne ke liye.
+    const [ratingOverride, setRatingOverride] = useState(null);
+    const [myRating, setMyRating] = useState(0);
+    const [hoverRating, setHoverRating] = useState(0);
+    const [myComment, setMyComment] = useState('');
+    const [submittingReview, setSubmittingReview] = useState(false);
+    const [reviewMsg, setReviewMsg] = useState(null); // { type: 'ok' | 'error', text }
+
+    useEffect(() => {
+        const controller = new AbortController();
+        // authFetch — logged-in ho toh liked_by_me sahi aata hai
+        authFetch(`${BASEURL}/api/products/${id}/reviews/`, { signal: controller.signal })
+            .then((res) => (res.ok ? res.json() : []))
+            .then((data) => setReviews(Array.isArray(data) ? data : []))
+            .catch(() => {}); // reviews fail hon toh bhi page chalna chahiye
+        return () => controller.abort();
+    }, [id, BASEURL, retryTrigger]);
 
     // ---------- Measure navbar height (no hardcoded pt-[60px]) ----------
     const navRef = useRef(null);
     const [navHeight, setNavHeight] = useState(60);
     useEffect(() => {
         if (navRef.current) setNavHeight(navRef.current.offsetHeight);
+    }, []);
+
+    // ---------- Mobile detect (reviews preview vs scroll box) ----------
+    const [isMobile, setIsMobile] = useState(() =>
+        typeof window !== 'undefined' && window.matchMedia(MOBILE_MEDIA_QUERY).matches
+    );
+    useEffect(() => {
+        const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
+        const onChange = (e) => setIsMobile(e.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
     }, []);
 
     // ---------- Fetch product (resets state, aborts stale requests) ----------
@@ -189,6 +243,46 @@ function ProductDetails() {
         }
     };
 
+    const submitReview = async () => {
+        if (!getAccessToken()) {
+            navigate('/login', { state: { from: `/product/${id}` } });
+            return;
+        }
+        if (!myRating) {
+            setReviewMsg({ type: 'error', text: 'Please select a star rating.' });
+            return;
+        }
+        setSubmittingReview(true);
+        setReviewMsg(null);
+        try {
+            const res = await authFetch(`${BASEURL}/api/products/${id}/reviews/add/`, {
+                method: 'POST',
+                body: JSON.stringify({ rating: myRating, comment: myComment }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setReviewMsg({ type: 'ok', text: '✓ Review submitted, thank you!' });
+                setMyComment('');
+                if (data.rating_avg !== undefined) {
+                    setRatingOverride({ avg: data.rating_avg, count: data.review_count });
+                }
+                // Fresh list — most-liked-first order me wapas aayegi
+                authFetch(`${BASEURL}/api/products/${id}/reviews/`)
+                    .then((r) => (r.ok ? r.json() : []))
+                    .then((list) => setReviews(Array.isArray(list) ? list : []))
+                    .catch(() => {});
+            } else if (res.status === 401) {
+                navigate('/login', { state: { from: `/product/${id}` } });
+            } else {
+                setReviewMsg({ type: 'error', text: data.error || 'Could not save review. Try again.' });
+            }
+        } catch {
+            setReviewMsg({ type: 'error', text: 'Could not reach the server. Please try again.' });
+        } finally {
+            setSubmittingReview(false);
+        }
+    };
+
     // ---------- Derived values (safe against string/NaN prices) ----------
     const numericPrice = Number(product?.price);
     const hasPrice = Number.isFinite(numericPrice) && numericPrice > 0;
@@ -200,6 +294,97 @@ function ProductDetails() {
     const totalStock = Number(product?.stock) || 0;
     const outOfStock = !!product && totalStock === 0;
     const lowStock = !!product && !outOfStock && totalStock <= 10;
+
+    // ---------- Rating aggregates (10+ reviews par hi dikhte hain) ----------
+    const ratingAvg = ratingOverride ? ratingOverride.avg : Number(product?.rating_avg) || 0;
+    const reviewCount = ratingOverride ? ratingOverride.count : Number(product?.review_count) || 0;
+    const showRatings = reviewCount >= MIN_REVIEWS_TO_SHOW;
+    // Scroll nahi — dono viewports par limited preview, baaki "Read more reviews" page par
+    const visibleReviews = isMobile
+        ? reviews.slice(0, PREVIEW_REVIEWS_MOBILE)
+        : reviews.slice(0, PREVIEW_REVIEWS_DESKTOP);
+
+    // Review like toggle — optimistic update, fail hone par revert
+    const handleLike = async (review) => {
+        if (!getAccessToken()) {
+            navigate('/login', { state: { from: location.pathname } });
+            return;
+        }
+        setReviews((prev) =>
+            prev.map((r) =>
+                r.id === review.id
+                    ? {
+                          ...r,
+                          liked_by_me: !r.liked_by_me,
+                          likes: Math.max(0, (Number(r.likes) || 0) + (r.liked_by_me ? -1 : 1)),
+                      }
+                    : r
+            )
+        );
+        try {
+            const res = await authFetch(`${BASEURL}/api/reviews/${review.id}/like/`, {
+                method: 'POST',
+            });
+            if (!res.ok) throw new Error('like failed');
+            const data = await res.json();
+            setReviews((prev) =>
+                prev.map((r) =>
+                    r.id === review.id ? { ...r, liked_by_me: data.liked, likes: data.likes } : r
+                )
+            );
+        } catch {
+            setReviews((prev) =>
+                prev.map((r) =>
+                    r.id === review.id
+                        ? { ...r, liked_by_me: review.liked_by_me, likes: review.likes }
+                        : r
+                )
+            );
+        }
+    };
+
+    // Review pin — sirf VIP. Pinned review list me top par aata hai (ek product, ek pin).
+    const handlePin = async (review) => {
+        if (!isVip) return;
+        try {
+            const res = await authFetch(`${BASEURL}/api/reviews/${review.id}/pin/`, {
+                method: 'POST',
+            });
+            if (!res.ok) throw new Error('pin failed');
+            const data = await res.json();
+            setReviews((prev) =>
+                sortReviews(
+                    prev.map((r) => (r.id === review.id ? { ...r, is_pinned: data.pinned } : r))
+                )
+            );
+        } catch {
+            // pin fail — chup rehna theek hai, review waisi hi rehti hai
+        }
+    };
+
+    // Review delete — sirf VIP. Count/average turant refresh hote hain (page reload ke bina).
+    const handleDelete = async (review) => {
+        if (!isVip) return;
+        if (!window.confirm('Delete this review?')) return;
+        try {
+            const res = await authFetch(`${BASEURL}/api/reviews/${review.id}/`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) throw new Error('delete failed');
+            setReviews((prev) => prev.filter((r) => r.id !== review.id));
+            authFetch(`${BASEURL}/api/products/${id}/`)
+                .then((res) => (res.ok ? res.json() : null))
+                .then((p) => {
+                    if (p) {
+                        setProduct(p);
+                        setRatingOverride(null);
+                    }
+                })
+                .catch(() => {});
+        } catch {
+            // delete fail — review list me hi rahegi
+        }
+    };
 
     // ---------- Image URLs (Thumbnail + Gallery) ----------
     const resolveImageUrl = (img) => {
@@ -328,6 +513,20 @@ function ProductDetails() {
 
                             <div className='flex-1'>
                                 <h1 className='text-3xl font-bold text-gray-800 mb-2'>{product.name}</h1>
+
+                                {/* Rating chip (Blinkit jaisa) — sirf 10+ reviews par */}
+                                {showRatings && (
+                                    <div className='flex items-center gap-2 mb-3 flex-wrap'>
+                                        <RatingStars rating={ratingAvg} size={16} />
+                                        <span className='text-sm font-bold text-gray-800'>
+                                            {ratingAvg}
+                                        </span>
+                                        <span className='text-sm text-gray-500'>
+                                            ({reviewCount} Ratings)
+                                        </span>
+                                    </div>
+                                )}
+
                                 <p className='text-gray-600 mb-4'>{product.description}</p>
                                 <div className='flex items-baseline gap-2 flex-wrap mb-6'>
                                     <p className='text-2xl font-semibold text-green-600'>
@@ -382,6 +581,105 @@ function ProductDetails() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* ===== Ratings & Reviews — scroll nahi, limited preview; baaki "Read more reviews" page par (sirf 10+ reviews par) ===== */}
+                        {showRatings && (
+                            <section className='mt-8 border-t border-gray-100 pt-6'>
+                                <h2 className='text-xl font-bold text-gray-800 mb-4'>
+                                    Ratings &amp; Reviews
+                                </h2>
+                                <div className='rounded-xl border border-gray-100 bg-slate-50/60 p-4'>
+                                    {reviews.length === 0 ? (
+                                        <p className='text-sm text-gray-500'>Loading reviews…</p>
+                                    ) : (
+                                        <div className='flex flex-col gap-5'>
+                                            {visibleReviews.map((r) => (
+                                                <ReviewItem
+                                                    key={r.id}
+                                                    review={r}
+                                                    onLike={handleLike}
+                                                    onPin={handlePin}
+                                                    onDelete={handleDelete}
+                                                    canModerate={isVip}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Saare reviews ka alag page — most-liked-first full list */}
+                                <button
+                                    onClick={() => navigate(`/product/${id}/reviews`)}
+                                    className='mt-3 w-full md:w-auto md:px-6 border border-gray-300 rounded-lg py-2.5 text-sm font-bold text-gray-800 hover:bg-gray-50 transition cursor-pointer'
+                                >
+                                    Read more reviews ({reviewCount})
+                                </button>
+                            </section>
+                        )}
+
+                        {/* ===== Rate this product — alag section, hamesha available (reviews isse accumulate hote hain) ===== */}
+                        <section className='mt-8 border-t border-gray-100 pt-6'>
+                            <h2 className='text-lg font-bold text-gray-800 mb-2'>
+                                Rate this product
+                            </h2>
+                            <div className='flex items-center gap-1 mb-3'>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button
+                                        key={star}
+                                        type='button'
+                                        onMouseEnter={() => setHoverRating(star)}
+                                        onMouseLeave={() => setHoverRating(0)}
+                                        onClick={() => setMyRating(star)}
+                                        className='p-0.5 cursor-pointer transition-transform hover:scale-110'
+                                        aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                                    >
+                                        <svg
+                                            width='28'
+                                            height='28'
+                                            viewBox='0 0 24 24'
+                                            fill={star <= (hoverRating || myRating) ? '#f59e0b' : '#d1d5db'}
+                                        >
+                                            <path d={STAR_PATH} />
+                                        </svg>
+                                    </button>
+                                ))}
+                                {(hoverRating || myRating) > 0 && (
+                                    <span className='ml-2 text-sm font-semibold text-gray-700'>
+                                        {RATING_LABELS[hoverRating || myRating]}
+                                    </span>
+                                )}
+                            </div>
+                            <textarea
+                                value={myComment}
+                                onChange={(e) => setMyComment(e.target.value)}
+                                placeholder='Share your experience (optional)…'
+                                rows={3}
+                                maxLength={1000}
+                                className='w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-none'
+                            />
+                            <div className='flex items-center gap-3 mt-2 flex-wrap'>
+                                <button
+                                    onClick={submitReview}
+                                    disabled={submittingReview}
+                                    className='bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer'
+                                >
+                                    {submittingReview ? 'Submitting…' : 'Submit Review'}
+                                </button>
+                                {reviewMsg && (
+                                    <p
+                                        className={`text-sm font-semibold ${
+                                            reviewMsg.type === 'ok' ? 'text-green-700' : 'text-red-600'
+                                        }`}
+                                    >
+                                        {reviewMsg.text}
+                                    </p>
+                                )}
+                            </div>
+                            {!getAccessToken() && (
+                                <p className='text-xs text-gray-500 mt-2'>
+                                    You&apos;ll be asked to log in before submitting.
+                                </p>
+                            )}
+                        </section>
                     </div>
                 )}
             </div>

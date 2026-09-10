@@ -11,6 +11,10 @@ import PrivateRoute from './components/PrivateRoute.jsx';
 import Login from './pages/Login.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import OrderTrackPage from './pages/OrderTrackPage.jsx';
+import OrderHistoryPage from './pages/OrderHistoryPage.jsx';
+import OrderSummaryPage from './pages/OrderSummaryPage.jsx';
+import RateOrderPage from './pages/RateOrderPage.jsx';
+import ProductReviewsPage from './pages/ProductReviewsPage.jsx';
 import HomeNav from './components/HomeNav.jsx';
 
 const NAVBAR_PATHS = ['/checkout', '/login', '/search', '/categories'];
@@ -34,6 +38,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<ProductList />} />
         <Route path="/product/:id" element={<ProductDetails />} />
+        <Route path="/product/:id/reviews" element={<ProductReviewsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/search" element={<ProductList />} />
         <Route path="/category/:slug" element={<ProductList />} />
@@ -44,6 +49,11 @@ function AppContent() {
         <Route path="/login" element={<><ProductList /><Login /></>} />
         <Route element={<PrivateRoute />}>
           <Route path="/account" element={<AccountPage />} />
+        </Route>
+        <Route element={<PrivateRoute />}>
+          <Route path="/orders/history" element={<OrderHistoryPage />} />
+          <Route path="/orders/history/:orderId" element={<OrderSummaryPage />} />
+          <Route path="/orders/history/:orderId/rate" element={<RateOrderPage />} />
         </Route>
         <Route element={<PrivateRoute />}>
           <Route path="/orders/:orderId/track" element={<OrderTrackPage />} />

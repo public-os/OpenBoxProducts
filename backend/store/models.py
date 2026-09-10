@@ -3,9 +3,15 @@ import threading
 
 from django.db import models, transaction
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 
 logger = logging.getLogger(__name__)
+
+
+def user_is_vip(user):
+    """User ka VIP status — UserProfile missing ho (e.g. createsuperuser) toh False."""
+    profile = getattr(user, 'userprofile', None)
+    return bool(profile and profile.is_vip)
 
 
 class Category(models.Model):
@@ -163,6 +169,31 @@ class ProductImage(models.Model):
         return f"{self.product.name} - {group} image"
 
 
+class Review(models.Model):
+    """Product review — Blinkit-style rating badge isi se banta hai.
+    Ek user ek product par sirf ek review de sakta hai (dobara submit = update)."""
+    product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
+    user = models.ForeignKey(User, related_name='reviews', on_delete=models.CASCADE)
+    rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comment = models.TextField(blank=True)
+    # Instagram-style likes — ek user ek review par ek hi like
+    liked_by = models.ManyToManyField(User, blank=True, related_name='liked_reviews')
+    # VIP user pin kar sakta hai — pinned review sabse upar dikhta hai (ek product par ek pin)
+    is_pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ('product', 'user')
+
+    def __str__(self):
+        return f"{self.user.username} → {self.product.name} ({self.rating}★)"
+
+    @property
+    def likes_count(self):
+        return self.liked_by.count()
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     phone = models.CharField(max_length=15, blank=True)
@@ -170,6 +201,8 @@ class UserProfile(models.Model):
     picture = models.URLField(blank=True)  # Google profile photo URL
     # User ki khud upload ki hui profile image (Google/Gravatar fallbacks se pehle dikhti hai)
     avatar = models.ImageField(upload_to='profile_pics/', blank=True, null=True)
+    # VIP user — review par blue tick + kisi bhi review ko delete/pin karne ki power
+    is_vip = models.BooleanField(default=False, verbose_name='VIP User')
 
     def __str__(self):
         return self.user.username

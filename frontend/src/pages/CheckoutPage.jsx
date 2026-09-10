@@ -292,7 +292,7 @@ function CheckoutPage() {
   // ------------------------------------------------------------------
   if (step === "done") {
     return (
-      <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
+      <div className="min-h-screen bg-gray-400 pt-35 p-6 pb-24 md:pb-8 sm:pt-30">
         <div className="max-w-lg mx-auto bg-white p-6 shadow rounded text-center">
           <div className="w-16 h-16 mx-auto rounded-full bg-green-600 flex items-center justify-center">
             <svg
@@ -360,7 +360,7 @@ function CheckoutPage() {
   // ------------------------------------------------------------------
   if (step === "pay") {
     return (
-      <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
+      <div className="min-h-screen bg-gray-400 pt-35 p-6 pb-24 md:pb-8 sm:pt-30">
         <div className="max-w-lg mx-auto bg-white p-6 shadow rounded">
           <div className="flex items-center gap-3">
             <button
@@ -462,7 +462,7 @@ function CheckoutPage() {
   // Step 1: shipping details
   // ------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-gray-400 pt-35 p-6 sm:pt-30">
+    <div className="min-h-screen bg-gray-400 pt-30 p-6 pb-24 md:pb-8 sm:pt-30">
       <div className="max-w-lg mx-auto bg-white p-6 shadow rounded">
         <h1 className="text-2xl font-bold mb-1">Checkout</h1>
         {order ? (

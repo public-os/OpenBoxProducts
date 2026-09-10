@@ -20,6 +20,11 @@ urlpatterns = [
     # Catalog
     path('products/', views.get_products, name='product_list'),
     path('products/<int:pk>/', views.get_product, name='product_detail'),
+    path('products/<int:pk>/reviews/', views.product_reviews, name='product_reviews'),
+    path('products/<int:pk>/reviews/add/', views.add_review, name='product_add_review'),
+    path('reviews/<int:review_id>/like/', views.toggle_review_like, name='review_like'),
+    path('reviews/<int:review_id>/pin/', views.toggle_review_pin, name='review_pin'),
+    path('reviews/<int:review_id>/', views.delete_review, name='review_delete'),
     path('products/<int:pk>/notify-me/', views.notify_me, name='product_notify_me'),
     path('categories/', views.get_categories, name='category_list'),
 

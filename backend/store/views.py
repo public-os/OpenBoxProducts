@@ -16,7 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.files.images import get_image_dimensions
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Avg, Count, Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -57,11 +57,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Product, Category, Cart, CartItem, Order, OrderItem, UserProfile, OTPVerification, ProductVariant, StockAlert
+from .models import (
+    Product, Category, Cart, CartItem, Order, OrderItem, UserProfile,
+    OTPVerification, ProductVariant, StockAlert, Review, user_is_vip,
+)
 from .delivery import ADDRESS_HINT, calculate_delivery
 from .serializers import (
     RegisterSerializer, UserSerializer,
     ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer,
+    ReviewSerializer,
 )
 
 OTP_EXPIRY_MINUTES = 5
@@ -472,6 +476,7 @@ def _profile_response(request, profile):
         'email': request.user.email,
         'phone': profile.phone,
         'address': profile.address,
+        'is_vip': profile.is_vip,
     }
     response.update(_profile_image_data(request, profile))
     return response
@@ -481,18 +486,113 @@ def _profile_response(request, profile):
 # Catalog
 # ------------------------------------------------------------------
 
+# Product list/detail ke saath review aggregates bhi — ProductCard badge aur
+# details page isi se Blinkit-style rating dikhate hain (10+ reviews par).
+def _with_rating_qs(qs):
+    return qs.annotate(
+        rating_avg=Avg('reviews__rating'),
+        review_count=Count('reviews', distinct=True),
+    )
+
+
 @api_view(['GET'])
 def get_products(request):
-    products = Product.objects.select_related('category').all()
+    products = _with_rating_qs(Product.objects.select_related('category').all())
     serializer = ProductSerializer(products, many=True, context={'request': request})
     return Response(serializer.data)
 
 
 @api_view(['GET'])
 def get_product(request, pk):
-    product = get_object_or_404(Product, id=pk)
+    product = get_object_or_404(_with_rating_qs(Product.objects.select_related('category')), id=pk)
     serializer = ProductSerializer(product, context={'request': request})
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+def product_reviews(request, pk):
+    """Ek product ke reviews — pinned sabse upar, phir sabse zyada liked, phir naye."""
+    product = get_object_or_404(Product, id=pk)
+    reviews = (
+        product.reviews.select_related('user__userprofile')
+        .annotate(total_likes=Count('liked_by', distinct=True))
+        .order_by('-is_pinned', '-total_likes', '-created_at')[:100]
+    )
+    serializer = ReviewSerializer(reviews, many=True, context={'request': request})
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_review_like(request, review_id):
+    """Instagram-style like toggle — ek user ek review par ek hi like."""
+    review = get_object_or_404(Review, id=review_id)
+    if review.liked_by.filter(pk=request.user.pk).exists():
+        review.liked_by.remove(request.user)
+        liked = False
+    else:
+        review.liked_by.add(request.user)
+        liked = True
+    return Response({'liked': liked, 'likes': review.liked_by.count()})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_review_pin(request, review_id):
+    """Review pin/unpin — sirf VIP user. Pinned review list me sabse upar dikhta hai;
+    ek product par ek hi review pinned rehta hai (naya pin purana hata deta hai)."""
+    if not user_is_vip(request.user):
+        return Response({'error': 'Only VIP users can pin reviews.'}, status=403)
+    review = get_object_or_404(Review, id=review_id)
+    if review.is_pinned:
+        review.is_pinned = False
+        review.save(update_fields=['is_pinned'])
+        return Response({'pinned': False})
+    Review.objects.filter(product_id=review.product_id, is_pinned=True).exclude(
+        pk=review.pk
+    ).update(is_pinned=False)
+    review.is_pinned = True
+    review.save(update_fields=['is_pinned'])
+    return Response({'pinned': True})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_review(request, review_id):
+    """Review delete — VIP user koi bhi review hata sakta hai; owner apna bhi."""
+    review = get_object_or_404(Review, id=review_id)
+    if not (user_is_vip(request.user) or review.user_id == request.user.pk):
+        return Response({'error': 'Only VIP users can delete reviews.'}, status=403)
+    review.delete()
+    return Response({'deleted': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_review(request, pk):
+    """Review add/update (ek user, ek product = ek review). Rating 1-5 zaroori."""
+    product = get_object_or_404(Product, id=pk)
+    try:
+        rating = int(request.data.get('rating'))
+    except (TypeError, ValueError):
+        return Response({'error': 'Rating is required (1-5 stars).'}, status=400)
+    if not 1 <= rating <= 5:
+        return Response({'error': 'Rating must be between 1 and 5 stars.'}, status=400)
+
+    comment = (request.data.get('comment') or '').strip()
+    review, created = Review.objects.update_or_create(
+        product=product, user=request.user,
+        defaults={'rating': rating, 'comment': comment[:1000]},
+    )
+    agg = product.reviews.aggregate(avg=Avg('rating'), count=Count('id'))
+    return Response(
+        {
+            'review': ReviewSerializer(review, context={'request': request}).data,
+            'rating_avg': round(agg['avg'], 1) if agg['avg'] is not None else None,
+            'review_count': agg['count'],
+        },
+        status=201 if created else 200,
+    )
 
 
 @api_view(['GET'])
@@ -613,6 +713,7 @@ def _order_response(order):
         image = item.product.display_image
         items_total += item.price * item.quantity
         items.append({
+            'product_id': item.product_id,
             'product': item.product.name,
             'image': image.url if image else None,
             'variant': item.variant.color_name if item.variant else None,
@@ -769,10 +870,15 @@ def create_order(request):
         return Response({'error': 'Could not create order. Please try again.'}, status=500)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def get_order(request, pk):
+    """Order detail. DELETE par user apna order history se hata sakta hai
+    (Blinkit-style 'Delete order') — sirf apna hi order."""
     order = get_object_or_404(Order, pk=pk, user=request.user)
+    if request.method == 'DELETE':
+        order.delete()
+        return Response({'deleted': True})
     return Response(_order_response(order))
 
 

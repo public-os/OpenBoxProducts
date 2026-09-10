@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from .models import (
     Category, Product, ProductVariant, ProductImage, UserProfile,
-    Order, Cart, OrderItem, CartItem, OTPVerification, StockAlert,
+    Order, Cart, OrderItem, CartItem, OTPVerification, StockAlert, Review,
 )
 
 
@@ -115,8 +115,34 @@ class ProductAdmin(admin.ModelAdmin):
         return base_readonly
 
 
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    """VIP flag yahin se on/off hota hai — VIP user ko reviews par blue tick
+    milta hai aur wo kisi bhi review ko delete/pin kar sakta hai."""
+    list_display = ('user', 'phone', 'is_vip', 'avatar_preview')
+    list_editable = ('is_vip',)
+    list_filter = ('is_vip',)
+    search_fields = ('user__username', 'user__email', 'phone')
+
+    def avatar_preview(self, obj):
+        if obj.avatar:
+            return format_html('<img src="{}" style="height:40px;border-radius:20px;" />', obj.avatar.url)
+        if obj.picture:
+            return format_html('<img src="{}" style="height:40px;border-radius:20px;" />', obj.picture)
+        return "-"
+    avatar_preview.short_description = 'Avatar'
+
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ('product', 'user', 'rating', 'likes_count', 'is_pinned', 'comment', 'created_at')
+    list_editable = ('is_pinned',)
+    list_filter = ('rating', 'is_pinned', 'created_at')
+    search_fields = ('product__name', 'user__username')
+    readonly_fields = ('created_at',)
+
+
 admin.site.register(OrderItem)
-admin.site.register(UserProfile)
 admin.site.register(CartItem)
 admin.site.register(OTPVerification)
 

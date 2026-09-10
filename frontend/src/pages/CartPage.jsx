@@ -34,6 +34,47 @@ const ORDER_LABELS = {
     cancelled: "Cancelled",
 };
 
+// Order ki product images — pehli 3 dikhengi (overlap cluster), click par
+// wahi product details page khulta hai. Baaki items +N me count hote hai.
+function OrderThumbs({ order }) {
+    const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
+    const thumbs = order.items.slice(0, 3);
+    const extra = order.items.length - thumbs.length;
+    return (
+        <div className="flex -space-x-3 shrink-0">
+            {thumbs.map((item, i) => {
+                const img = item.image;
+                const src = img
+                    ? img.startsWith("http")
+                        ? img
+                        : `${BASEURL}${img.startsWith("/") ? "" : "/"}${img}`
+                    : null;
+                return (
+                    <Link
+                        key={i}
+                        to={`/product/${item.product_id}`}
+                        title={item.product}
+                        className="relative block w-12 h-12 rounded-full border-2 border-white shadow-sm overflow-hidden hover:scale-110 hover:z-10 transition-transform cursor-pointer"
+                    >
+                        {src ? (
+                            <img src={src} alt={item.product} className="w-full h-full object-cover" />
+                        ) : (
+                            <span className="w-full h-full bg-gray-100 flex items-center justify-center text-sm">
+                                📦
+                            </span>
+                        )}
+                    </Link>
+                );
+            })}
+            {extra > 0 && (
+                <span className="w-12 h-12 rounded-full border-2 border-white shadow-sm bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold">
+                    +{extra}
+                </span>
+            )}
+        </div>
+    );
+}
+
 function CartPage() {
     const { cartItems, total, removeFromCart, updateQuantity } = useCart();
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
@@ -41,7 +82,8 @@ function CartPage() {
 
     // User ke saare orders — null = loading / logged out, [] = kuch nahi.
     // Status ke hisaab se sections derive hote hai: pending (payment baaki),
-    // active (payment ho gaya, delivery chal rahi hai), delivered (history).
+    // active (payment ho gaya, delivery chal rahi hai). Delivered history
+    // Account page ke "Your Orders History" me dikhti hai.
     const [orders, setOrders] = useState(null);
     // Jis pending order ka remove chal raha hai uska id (button disable ke liye)
     const [removingId, setRemovingId] = useState(null);
@@ -81,10 +123,6 @@ function CartPage() {
                 (o.status === "pending" &&
                     (o.payment_status === "verifying" || o.payment_status === "paid"))
         )
-        : [];
-    // History = delivered + cancelled — Blinkit-style list me CartPage par hi dikhte hai
-    const historyOrders = orders
-        ? orders.filter((o) => o.status === "delivered" || o.status === "cancelled")
         : [];
 
     // Pending order remove — backend par cancel hota hai, stock wapas add ho jata hai
@@ -255,18 +293,21 @@ function CartPage() {
                                 key={order.order_id}
                                 className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
                             >
-                                <div className="min-w-0">
-                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
-                                    <p className="text-xs text-gray-500">
-                                        Placed: {formatDateTime(order.created_at)}
-                                    </p>
-                                    <span
-                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${PAYMENT_BADGES[order.payment_status] ||
-                                            "bg-gray-100 text-gray-700"
-                                            }`}
-                                    >
-                                        {PAYMENT_LABELS[order.payment_status] || order.payment_status}
-                                    </span>
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <OrderThumbs order={order} />
+                                    <div className="min-w-0">
+                                        <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Placed: {formatDateTime(order.created_at)}
+                                        </p>
+                                        <span
+                                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${PAYMENT_BADGES[order.payment_status] ||
+                                                "bg-gray-100 text-gray-700"
+                                                }`}
+                                        >
+                                            {PAYMENT_LABELS[order.payment_status] || order.payment_status}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-4 shrink-0">
                                     <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
@@ -326,17 +367,20 @@ function CartPage() {
                                 key={order.order_id}
                                 className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
                             >
-                                <div className="min-w-0">
-                                    <p className="font-semibold text-sm">#{order.order_ref}</p>
-                                    <p className="text-xs text-gray-500">
-                                        Placed: {formatDateTime(order.created_at)}
-                                    </p>
-                                    <span
-                                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${ORDER_BADGES[stateKey] || "bg-gray-100 text-gray-700"
-                                            }`}
-                                    >
-                                        {ORDER_LABELS[stateKey] || stateKey}
-                                    </span>
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <OrderThumbs order={order} />
+                                    <div className="min-w-0">
+                                        <p className="font-semibold text-sm">#{order.order_ref}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Placed: {formatDateTime(order.created_at)}
+                                        </p>
+                                        <span
+                                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${ORDER_BADGES[stateKey] || "bg-gray-100 text-gray-700"
+                                                }`}
+                                        >
+                                            {ORDER_LABELS[stateKey] || stateKey}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-4 shrink-0">
                                     <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
@@ -353,79 +397,7 @@ function CartPage() {
                 </div>
             )}
 
-            {/* ---------- Order History: delivered/cancelled — row click par full details ---------- */}
-            {historyOrders.length > 0 && (
-                <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
-                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
-                        📜 Order History
-                        <span className="ml-2 text-sm font-normal text-gray-500">
-                            order par click karke poori detail dekho
-                        </span>
-                    </h2>
-                    <div className="divide-y divide-gray-200">
-                        {historyOrders.map((order) => {
-                            // Pehle 3 items ki thumbnails (Blinkit jaisa overlap cluster)
-                            const thumbs = order.items.slice(0, 3);
-                            const extra = order.items.length - thumbs.length;
-                            return (
-                                <Link
-                                    key={order.order_id}
-                                    to={`/orders/${order.order_id}/track`}
-                                    className="flex items-center gap-4 py-4 hover:bg-gray-50 transition rounded-lg px-2 -mx-2"
-                                >
-                                    <div className="flex -space-x-3 shrink-0">
-                                        {thumbs.map((item, i) => {
-                                            const img = item.image;
-                                            const src = img
-                                                ? img.startsWith("http")
-                                                    ? img
-                                                    : `${BASEURL}${img.startsWith("/") ? "" : "/"}${img}`
-                                                : null;
-                                            return src ? (
-                                                <img
-                                                    key={i}
-                                                    src={src}
-                                                    alt={item.product}
-                                                    className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm"
-                                                />
-                                            ) : (
-                                                <span
-                                                    key={i}
-                                                    className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm bg-gray-100 flex items-center justify-center text-sm"
-                                                >
-                                                    📦
-                                                </span>
-                                            );
-                                        })}
-                                        {extra > 0 && (
-                                            <span className="w-12 h-12 rounded-full border-2 border-white shadow-sm bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold">
-                                                +{extra}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <p className="font-semibold text-sm">#{order.order_ref}</p>
-                                        <p className="text-xs text-gray-500">
-                                            Placed: {formatDateTime(order.created_at)} ·{" "}
-                                            {order.items.length} item{order.items.length > 1 ? "s" : ""}
-                                        </p>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                        <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
-                                        <span
-                                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                                ORDER_BADGES[order.status] || "bg-gray-100 text-gray-700"
-                                            }`}
-                                        >
-                                            {ORDER_LABELS[order.status] || order.status}
-                                        </span>
-                                    </div>
-                                </Link>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
+            {/* Order history ab Account page ke "Your Orders History" me hai */}
 
 
         </div>

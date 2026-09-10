@@ -15,3 +15,17 @@ export const formatDateTime = (value) => {
         hour: 'numeric', minute: '2-digit', hour12: true,
     });
 };
+
+// "10 Sep 2026" — review dates. Null when value isn't a date.
+export const formatDate = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+// "12:43 pm" — sirf time. Null when value isn't a date.
+export const formatTime = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+};

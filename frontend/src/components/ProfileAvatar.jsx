@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import VipBadge from "./VipBadge.jsx";
 
 // Default profile logo — jab koi image set nahi hai (skip kiya ya email par bhi kuch nahi mila)
 export function DefaultAvatar({ className = "w-full h-full rounded-full" }) {
@@ -14,9 +15,12 @@ export function DefaultAvatar({ className = "w-full h-full rounded-full" }) {
 /**
  * Circular profile image with automatic fallback:
  * image load fail (jaise Gravatar 404) -> default profile logo.
+ * `fallbackLabel` diya ho toh default icon ki jagah letter avatar (review jaise jagah).
  * `editable` par camera badge dikhta hai jo `onChange` trigger karta hai.
+ * `vip` par blue verified tick dikhta hai — `vipTop` hone par top-right, warna bottom-right
+ * (account page par camera niche hota hai, isliye tick upar).
  */
-export default function ProfileAvatar({ src, alt = "Profile photo", className = "w-24 h-24", editable = false, onChange }) {
+export default function ProfileAvatar({ src, alt = "Profile photo", className = "w-24 h-24", editable = false, onChange, vip = false, vipTop = false, fallbackLabel }) {
     const [failed, setFailed] = useState(false);
 
     // Nayi src aane par error state reset ho jaye
@@ -33,8 +37,18 @@ export default function ProfileAvatar({ src, alt = "Profile photo", className = 
                     onError={() => setFailed(true)}
                     className="w-full h-full rounded-full object-cover border border-gray-200 bg-white"
                 />
+            ) : fallbackLabel ? (
+                <div className="w-full h-full rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm border border-gray-200">
+                    {fallbackLabel.charAt(0).toUpperCase()}
+                </div>
             ) : (
                 <DefaultAvatar className="w-full h-full rounded-full border border-gray-200" />
+            )}
+
+            {vip && (
+                <span className={`absolute -right-0.5 z-10 ${vipTop ? '-top-0.5' : '-bottom-0.5'}`}>
+                    <VipBadge size={14} className='rounded-full ring-2 ring-white' />
+                </span>
             )}
 
             {editable && (

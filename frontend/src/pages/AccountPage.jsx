@@ -115,6 +115,8 @@ function AccountPage() {
                                     className="w-16 h-16 sm:w-20 sm:h-20"
                                     editable
                                     onChange={() => setAvatarOpen(true)}
+                                    vip={profile.is_vip}
+                                    vipTop
                                 />
                             )}
                             <div className="min-w-0">
@@ -262,7 +264,29 @@ function AccountPage() {
                         }}
                     />
                 )}
-                <p className="px-4 p-6">Your Orders History</p>
+                {/* ---------- Your Orders History — mobile par card, desktop par navbar dropdown me ---------- */}
+                <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md mt-6 md:hidden">
+                    <button
+                        onClick={() => navigate("/orders/history")}
+                        className="w-full flex items-center justify-between cursor-pointer text-left"
+                        aria-label="Open your orders history"
+                    >
+                        <span className="text-base sm:text-lg font-semibold">
+                            📦 Your Orders History
+                            <span className="ml-2 text-sm font-normal text-gray-500">
+                                received orders dekho
+                            </span>
+                        </span>
+                        <svg
+                            className="w-5 h-5 text-gray-500"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </>
     );

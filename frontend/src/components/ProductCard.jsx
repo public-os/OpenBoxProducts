@@ -1,5 +1,9 @@
 import { Link } from 'react-router-dom';
 import { formatINR } from '../utils/format.js';
+import RatingStars from './RatingStars.jsx';
+
+// Rating badge isi threshold par dikhta hai — usse kam reviews par chhupa rehta hai
+const MIN_REVIEWS_FOR_BADGE = 10;
 
 function ProductCard({ product }) {
     const BASE_URL = import.meta.env.VITE_DJANGO_BASE_URL;
@@ -18,6 +22,11 @@ function ProductCard({ product }) {
     // Stock indicator: 0 = out of stock (still used to dim the image)
     const stock = Number(product.stock);
     const outOfStock = stock === 0;
+
+    // Blinkit-style rating badge — sirf 10+ reviews par (10 se kam par hidden)
+    const ratingAvg = Number(product.rating_avg) || 0;
+    const reviewCount = Number(product.review_count) || 0;
+    const showRatingBadge = reviewCount >= MIN_REVIEWS_FOR_BADGE;
 
     return (
         <Link to={`/product/${product.id}`} className="block h-full">
@@ -50,9 +59,20 @@ function ProductCard({ product }) {
                                 <p className="text-[10px] sm:text-xs text-gray-400 line-through">₹{formatINR(product.mrp)}</p>
                             )}
                         </div>
-                        {discount > 0 && (
-                            <p className="text-[10px] sm:text-xs font-semibold text-green-600">{discount}% off</p>
-                        )}
+                        {/* Discount ke side me rating badge (sirf 10+ reviews par) */}
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            {discount > 0 && (
+                                <p className="text-[10px] sm:text-xs font-semibold text-green-600">{discount}% off</p>
+                            )}
+                            {showRatingBadge && (
+                                <span className="flex items-center gap-1">
+                                    <RatingStars rating={ratingAvg} size={11} />
+                                    <span className="text-[9px] sm:text-[10px] font-bold text-gray-700 leading-none">
+                                        {reviewCount}
+                                    </span>
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

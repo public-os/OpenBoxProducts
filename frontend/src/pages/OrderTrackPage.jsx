@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { authFetch, getAccessToken } from "../utils/auth.js";
 import { formatDateTime, formatINR } from "../utils/format.js";
 import OrderTracking from "../components/OrderTracking.jsx";
@@ -89,7 +89,7 @@ function OrderTrackPage() {
         order.payment_status !== "verifying";
 
     return (
-        <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
+        <div className="pt-6 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
             <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
                 {/* ---------- Header + back ---------- */}
                 <div className="flex items-center gap-3 pb-3 border-b border-gray-200">
@@ -140,22 +140,29 @@ function OrderTrackPage() {
                             const src = imageSrc(item.image);
                             return (
                                 <div key={i} className="flex items-center gap-3 py-3">
-                                    {src && (
-                                        <img
-                                            src={src}
-                                            alt={item.product}
-                                            className="w-14 h-14 object-cover rounded-lg flex-shrink-0"
-                                        />
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-semibold truncate">
-                                            {item.product}
-                                        </p>
-                                        <p className="text-xs text-gray-500">
-                                            {item.variant ? `${item.variant} · ` : ""}₹
-                                            {formatINR(item.price)} × {item.quantity}
-                                        </p>
-                                    </div>
+                                    {/* Image + naam click par wahi product khulta hai */}
+                                    <Link
+                                        to={`/product/${item.product_id}`}
+                                        title={item.product}
+                                        className="flex items-center gap-3 min-w-0 flex-1 group cursor-pointer"
+                                    >
+                                        {src && (
+                                            <img
+                                                src={src}
+                                                alt={item.product}
+                                                className="w-14 h-14 object-cover rounded-lg flex-shrink-0 group-hover:scale-105 transition-transform"
+                                            />
+                                        )}
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold truncate group-hover:text-blue-600 transition-colors">
+                                                {item.product}
+                                            </p>
+                                            <p className="text-xs text-gray-500">
+                                                {item.variant ? `${item.variant} · ` : ""}₹
+                                                {formatINR(item.price)} × {item.quantity}
+                                            </p>
+                                        </div>
+                                    </Link>
                                     <p className="text-sm font-semibold shrink-0">
                                         ₹{formatINR(item.subtotal)}
                                     </p>
