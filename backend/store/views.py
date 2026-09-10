@@ -5,6 +5,7 @@ import os
 import random
 import requests
 from datetime import timedelta
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +23,33 @@ from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import SimpleRateThrottle
 
 
-class OtpRateThrottle(ScopedRateThrottle):
-    """ScopedRateThrottle requires throttle_scope; bake it in here."""
+class _UserOrIpRateThrottle(SimpleRateThrottle):
+    """SimpleRateThrottle with ScopedRateThrottle's ident logic: logged-in user
+    par user-pk, anon (OTP) par IP. ScopedRateThrottle subclass scope ko
+    view.throttle_scope se overwrite kar deta hai aur views par throttle_scope
+    set nahi hai — isliye ye seedha SimpleRateThrottle use karta hai."""
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+class OtpRateThrottle(_UserOrIpRateThrottle):
     scope = 'otp'
 
 
-class GoogleRateThrottle(ScopedRateThrottle):
+class GoogleRateThrottle(_UserOrIpRateThrottle):
     scope = 'google'
+
+
+class DeliveryQuoteThrottle(_UserOrIpRateThrottle):
+    """Checkout page ka live delivery estimate — Nominatim rate-limit friendly."""
+    scope = 'delivery'
 
 
 from rest_framework import status, exceptions
@@ -40,6 +58,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import Product, Category, Cart, CartItem, Order, OrderItem, UserProfile, OTPVerification, ProductVariant, StockAlert
+from .delivery import ADDRESS_HINT, calculate_delivery
 from .serializers import (
     RegisterSerializer, UserSerializer,
     ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer,
@@ -589,8 +608,10 @@ def _generate_order_ref():
 
 def _order_response(order):
     items = []
+    items_total = Decimal('0')
     for item in order.items.select_related('product', 'variant').all():
         image = item.product.display_image
+        items_total += item.price * item.quantity
         items.append({
             'product': item.product.name,
             'image': image.url if image else None,
@@ -603,6 +624,12 @@ def _order_response(order):
         'order_id': order.id,
         'order_ref': order.order_ref,
         'total_amount': str(order.total_amount),
+        # Breakdown: total_amount = items_total + delivery_charge
+        'items_total': str(items_total),
+        'delivery_charge': str(order.delivery_charge),
+        'delivery_distance_km': (
+            str(order.delivery_distance_km) if order.delivery_distance_km is not None else None
+        ),
         'status': order.status,
         'payment_status': order.payment_status,
         'payment_ref': order.payment_ref,
@@ -652,6 +679,16 @@ def create_order(request):
     if not cart.items.exists():
         return Response({'error': 'Cart is empty'}, status=400)
 
+    # Delivery charge — shipping address shop se kitni door hai us par depend
+    # karta hai. Geocode ek network call hai isliye transaction se PEHLE (DB
+    # locks hold na ho). Address hi locate na ho toh customer se clear address
+    # maango — andaza lagane par galat charge lagne ka risk nahi.
+    distance_km, delivery_charge, geo_state = calculate_delivery(address)
+    if geo_state == 'unresolved':
+        return Response({'error': ADDRESS_HINT}, status=400)
+    # geo_state == 'error' (geocode service down): fail-open — free delivery
+    # default, distance NULL. Owner order notification me address review kar lega.
+
     try:
         with transaction.atomic():
             product_ids = list(cart.items.values_list('product_id', flat=True))
@@ -679,13 +716,15 @@ def create_order(request):
                         status=400
                     )
 
-            total = sum(
+            items_total = sum(
                 item.quantity * (variants[item.variant_id].final_price if item.variant_id else products[item.product_id].price)
                 for item in cart_items
             )
             order = Order.objects.create(
                 user=request.user,
-                total_amount=total,
+                total_amount=items_total + delivery_charge,
+                delivery_charge=delivery_charge,
+                delivery_distance_km=Decimal(str(distance_km)) if distance_km is not None else None,
                 shipping_name=str(name)[:150],
                 shipping_phone=str(phone)[:15],
                 shipping_address=str(address),
@@ -718,6 +757,11 @@ def create_order(request):
             'order_id': order.id,
             'order_ref': order.order_ref,
             'total_amount': str(order.total_amount),
+            'items_total': str(items_total),
+            'delivery_charge': str(order.delivery_charge),
+            'delivery_distance_km': (
+                str(order.delivery_distance_km) if order.delivery_distance_km is not None else None
+            ),
         }, status=201)
 
     except Exception:
@@ -800,9 +844,51 @@ def update_order_shipping(request, pk):
     order.shipping_name = str(name)[:150]
     order.shipping_phone = str(phone)[:15]
     order.shipping_address = str(address)
-    order.save(update_fields=['shipping_name', 'shipping_phone', 'shipping_address', 'updated_at'])
+
+    # Address badla toh delivery charge bhi naya ho sakta hai (total_amount usi
+    # se banta hai). Service down ho toh purana charge rakho — order create ke
+    # waqt jo charge laga tha wahi sahi rehta hai.
+    distance_km, delivery_charge, geo_state = calculate_delivery(address)
+    if geo_state == 'unresolved':
+        return Response({'error': ADDRESS_HINT}, status=400)
+    if geo_state == 'error':
+        delivery_charge = order.delivery_charge
+        distance_km = order.delivery_distance_km
+
+    items_total = sum(item.price * item.quantity for item in order.items.all())
+    order.delivery_charge = delivery_charge
+    order.delivery_distance_km = Decimal(str(distance_km)) if distance_km is not None else None
+    order.total_amount = items_total + delivery_charge
+    order.save(update_fields=[
+        'shipping_name', 'shipping_phone', 'shipping_address',
+        'delivery_charge', 'delivery_distance_km', 'total_amount', 'updated_at',
+    ])
 
     return Response(_order_response(order))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([DeliveryQuoteThrottle])
+def delivery_quote(request):
+    """Checkout page ka live estimate — address likhte hi free/₹40 delivery
+    dikhane ke liye. Final (authoritative) charge order create / update-shipping
+    par wapas calculate hota hai."""
+    address = str(request.data.get('address') or '').strip()
+    if not address:
+        return Response({'error': 'Address is required'}, status=400)
+
+    distance_km, charge, geo_state = calculate_delivery(address)
+    if geo_state == 'unresolved':
+        return Response({'error': ADDRESS_HINT}, status=400)
+
+    return Response({
+        'distance_km': distance_km,
+        'delivery_charge': str(charge),
+        'free_delivery': charge == 0,
+        # geocode service down — estimate nahi de sakte, checkout par charge lagega
+        'unavailable': geo_state == 'error',
+    })
 
 
 # ------------------------------------------------------------------

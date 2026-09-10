@@ -57,6 +57,8 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'otp': '10/hour',
         'google': '30/hour',
+        # delivery-quote: address typing par live estimate — Nominatim rate-limit friendly
+        'delivery': '60/hour',
     },
 }
 
@@ -99,6 +101,19 @@ RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = os.getenv('RAZORPAY_WEBHOOK_SECRET', '')
 # API base override sirf e2e testing ke liye (local fake gateway) — prod me default rehne do
 RAZORPAY_API_BASE = os.getenv('RAZORPAY_API_BASE', 'https://api.razorpay.com/v1')
+
+# Delivery charge — shop location se customer address ki distance par depend karta hai
+# (store/delivery.py). Default: Shastri Nagar Metro Station, Delhi (Red Line, 110052).
+# Apni shop ka exact pin Google Maps par right-click karke lat, lng copy kar sakte ho.
+SHOP_LATITUDE = float(os.getenv('SHOP_LATITUDE', '28.6700885'))
+SHOP_LONGITUDE = float(os.getenv('SHOP_LONGITUDE', '77.1818589'))
+# Is distance (km) ke andar delivery free, uske aage flat charge
+FREE_DELIVERY_RADIUS_KM = float(os.getenv('FREE_DELIVERY_RADIUS_KM', '60'))
+DELIVERY_CHARGE = os.getenv('DELIVERY_CHARGE', '40')
+
+# Optional: Google Geocoding API key (customer address -> lat/lng). Set na ho toh
+# free OpenStreetMap Nominatim use hota hai — koi key nahi chahiye.
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 
 # Credentials missing hain toh emails console par print ho jayenge (dev-only) —
 # warna bina setup ke SMTP errors aate.

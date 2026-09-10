@@ -210,6 +210,15 @@ class Order(models.Model):
     shipping_phone = models.CharField(max_length=15, blank=True)
     shipping_address = models.TextField(blank=True)
 
+    # Delivery charge — shipping address shop (Shastri Nagar Metro, Delhi) se
+    # kitni door hai uske hisaab se checkout par calculate hota hai
+    # (FREE_DELIVERY_RADIUS_KM ke andar free, uske bahar flat DELIVERY_CHARGE).
+    # distance NULL = geocode us waqt fail hua tha (service down -> free default).
+    delivery_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    delivery_distance_km = models.DecimalField(
+        max_digits=7, decimal_places=2, null=True, blank=True
+    )
+
     # Payment gateway (Razorpay) tracking
     order_ref = models.CharField(max_length=20, unique=True, blank=True)  # receipt id for the gateway order
     gateway_order_id = models.CharField(max_length=64, blank=True, db_index=True)  # razorpay `order_xxx`
@@ -228,7 +237,7 @@ class Order(models.Model):
         return f"Order {self.id}"
 
     def recalculate_total(self, save=True):
-        total = sum(item.price * item.quantity for item in self.items.all())
+        total = sum(item.price * item.quantity for item in self.items.all()) + self.delivery_charge
         self.total_amount = total
         if save:
             self.save(update_fields=['total_amount'])

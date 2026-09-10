@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { authFetch, getAccessToken } from "../utils/auth.js";
 import { formatDateTime, formatINR } from "../utils/format.js";
 import OrderTracking from "../components/OrderTracking.jsx";
@@ -59,44 +59,9 @@ function OrderTrackPage() {
                 : `${BASEURL}${image.startsWith("/") ? "" : "/"}${image}`
             : null;
 
-    // CartPage jaisi fixed navbar — back arrow + centered title + desktop par home icon
-    const navBar = (
-        <nav className="bg-blue-100 fixed top-0 left-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5">
-            {/* Back Arrow */}
-            <button
-                onClick={() => nav(-1)}
-                className="w-9 h-9 flex items-center justify-center text-gray-800 hover:text-blue-600 transition-colors"
-                title="Back"
-                aria-label="Go back"
-            >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-            </button>
-
-            <p className="text-center">Track Order</p>
-
-            {/* Home icon — sirf desktop par */}
-            <Link
-                to="/"
-                className="hidden md:flex w-9 h-9 items-center justify-center text-gray-800 hover:text-blue-600 transition-colors"
-                title="Home"
-                aria-label="Go to home"
-            >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l9-9 9 9" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" />
-                </svg>
-            </Link>
-            {/* mobile par placeholder — title centered rahe */}
-            <div className="w-9 h-9 md:hidden"></div>
-        </nav>
-    );
-
     if (error) {
         return (
-            <div className="pt-20 sm:pt-24 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
-                {navBar}
+            <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
                 <div className="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md text-center">
                     <p className="text-red-600 font-semibold">⚠️ {error}</p>
                     <button
@@ -112,8 +77,7 @@ function OrderTrackPage() {
 
     if (!order) {
         return (
-            <div className="pt-20 sm:pt-24 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
-                {navBar}
+            <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
                 <p className="max-w-4xl mx-auto text-white/90">Order load ho rahi hai…</p>
             </div>
         );
@@ -125,21 +89,42 @@ function OrderTrackPage() {
         order.payment_status !== "verifying";
 
     return (
-        <div className="pt-20 sm:pt-24 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-10">
-            {navBar}
+        <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-8 sm:pb-20 pb-20 md:pb-8">
             <div className="max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
-                {/* ---------- Checkout details: order + items ---------- */}
-                <div className="pb-4 border-b border-gray-200">
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                        <h2 className="text-base font-semibold">🧾 Order Details</h2>
-                        <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                PAYMENT_BADGES[order.payment_status] || "bg-gray-100 text-gray-700"
-                            }`}
+                {/* ---------- Header + back ---------- */}
+                <div className="flex items-center gap-3 pb-3 border-b border-gray-200">
+                    <button
+                        onClick={() => nav(-1)}
+                        aria-label="Go back"
+                        title="Back"
+                        className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 transition"
+                    >
+                        <svg
+                            className="w-5 h-5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                         >
-                            {PAYMENT_LABELS[order.payment_status] || order.payment_status}
-                        </span>
-                    </div>
+                            <path d="M19 12H5" />
+                            <path d="M12 19l-7-7 7-7" />
+                        </svg>
+                    </button>
+                    <h1 className="text-lg sm:text-xl font-bold">📦 Track Order</h1>
+                    <span
+                        className={`ml-auto px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            PAYMENT_BADGES[order.payment_status] || "bg-gray-100 text-gray-700"
+                        }`}
+                    >
+                        {PAYMENT_LABELS[order.payment_status] || order.payment_status}
+                    </span>
+                </div>
+
+                {/* ---------- Checkout details: order + items ---------- */}
+                <div className="py-4 border-b border-gray-200">
+                    <h2 className="text-base font-semibold mb-3">🧾 Order Details</h2>
                     <div className="flex flex-col sm:flex-row sm:justify-between gap-1 text-sm">
                         <p>
                             Order ID:{" "}

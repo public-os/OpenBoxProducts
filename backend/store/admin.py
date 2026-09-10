@@ -13,8 +13,9 @@ admin.site.register(Cart)
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
-        'order_ref', 'user', 'total_amount', 'payment_status',
-        'payment_ref', 'status', 'shipping_phone', 'created_at', 'updated_at',
+        'order_ref', 'user', 'total_amount', 'delivery_charge',
+        'payment_status', 'payment_ref', 'status', 'shipping_phone',
+        'created_at', 'updated_at',
     )
     list_filter = ('payment_status', 'status')
     search_fields = ('order_ref', 'payment_ref', 'gateway_order_id', 'user__username', 'shipping_phone', 'shipping_name')

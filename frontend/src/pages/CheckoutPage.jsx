@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { authFetch, getAccessToken } from "../utils/auth.js";
@@ -19,6 +19,9 @@ function CheckoutPage() {
   const [paying, setPaying] = useState(false); // gateway popup flow chal raha hai
   const [error, setError] = useState("");
   const [trackedOrder, setTrackedOrder] = useState(null); // done step ka live tracking data
+  // Address ke saath live delivery estimate (backend delivery-quote se)
+  const [quote, setQuote] = useState(null);
+  const latestAddressRef = useRef(""); // purane quote response ko ignore karne ke liye
 
   const nav = useNavigate();
   const location = useLocation();
@@ -41,6 +44,8 @@ function CheckoutPage() {
             order_id: data.order_id,
             order_ref: data.order_ref,
             total_amount: data.total_amount,
+            items_total: data.items_total,
+            delivery_charge: data.delivery_charge,
             shipping_name: data.shipping_name,
             shipping_address: data.shipping_address,
             shipping_phone: data.shipping_phone,
@@ -84,6 +89,40 @@ function CheckoutPage() {
       isCancelled = true;
     };
   }, [BASEURL]);
+
+  // Address type karte hi (700ms debounce) live delivery estimate — shop se
+  // distance ke hisaab se FREE ya ₹40. Sirf dikhane ke liye; final charge
+  // backend order create/update par khud calculate karta hai.
+  useEffect(() => {
+    if (step !== "details" || form.address.trim().length < 6) {
+      setQuote(null);
+      return;
+    }
+    setQuote((prev) => ({ ...prev, loading: true }));
+    const timer = setTimeout(() => {
+      const requestedFor = form.address;
+      latestAddressRef.current = requestedFor;
+      authFetch(`${BASEURL}/api/orders/delivery-quote/`, {
+        method: "POST",
+        body: JSON.stringify({ address: form.address }),
+      })
+        .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+        .then(({ ok, data }) => {
+          // Beech me user ne address badal diya toh purana response ignore karo
+          if (latestAddressRef.current !== requestedFor) return;
+          setQuote(
+            ok
+              ? { ...data, loading: false }
+              : { error: data.error || "Delivery estimate nahi mila.", loading: false }
+          );
+        })
+        .catch(() => {
+          if (latestAddressRef.current !== requestedFor) return;
+          setQuote({ unavailable: true, loading: false });
+        });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [form.address, step, BASEURL]);
 
   // Order confirm hone ke baad (done step) backend se latest status fetch karo
   useEffect(() => {
@@ -135,6 +174,8 @@ function CheckoutPage() {
           order_id: data.order_id,
           order_ref: data.order_ref,
           total_amount: data.total_amount,
+          items_total: data.items_total,
+          delivery_charge: data.delivery_charge,
           shipping_name: data.shipping_name ?? form.name,
           shipping_address: data.shipping_address ?? form.address,
           shipping_phone: data.shipping_phone ?? form.phone,
@@ -204,6 +245,8 @@ function CheckoutPage() {
                 ...prev,
                 order_ref: vdata.order_ref,
                 total_amount: vdata.total_amount,
+                items_total: vdata.items_total,
+                delivery_charge: vdata.delivery_charge,
                 payment_ref: vdata.payment_ref,
               }));
               setStep("done");
@@ -361,11 +404,28 @@ function CheckoutPage() {
               Order ID: <span className="font-semibold">{order.order_ref}</span>
             </p>
             <p>
-              Amount:{" "}
-              <span className="font-semibold">₹{order.total_amount}</span>
+              Items: <span className="font-semibold">₹{Number(order.items_total)}</span>
             </p>
             <p>
               Delivery:{" "}
+              <span
+                className={`font-semibold ${
+                  Number(order.delivery_charge) === 0 ? "text-green-700" : ""
+                }`}
+              >
+                {Number(order.delivery_charge) === 0
+                  ? "FREE"
+                  : `₹${Number(order.delivery_charge)}`}
+              </span>
+              {order.delivery_distance_km != null && (
+                <span className="text-gray-500"> ({order.delivery_distance_km} km)</span>
+              )}
+            </p>
+            <p>
+              Total: <span className="font-semibold">₹{order.total_amount}</span>
+            </p>
+            <p>
+              Delivery by:{" "}
               <span className="font-semibold">
                 {order.shipping_name}, {order.shipping_phone}
               </span>
@@ -428,10 +488,35 @@ function CheckoutPage() {
             name="address"
             value={form.address}
             onChange={handleChange}
-            placeholder="Address"
+            placeholder="Address (area, city, PIN code)"
             required
             className="w-full p-2 border rounded"
           />
+
+          {/* Live delivery estimate — shop se distance ke hisaab se FREE ya ₹40 */}
+          {quote?.loading && (
+            <p className="text-xs text-gray-500">🚚 Delivery charge check ho raha hai…</p>
+          )}
+          {!quote?.loading && quote?.error && (
+            <p className="text-xs text-amber-700">⚠️ {quote.error}</p>
+          )}
+          {!quote?.loading && quote?.unavailable && (
+            <p className="text-xs text-gray-500">
+              🚚 Delivery charge abhi check nahi hua — aage total me add ho jayega.
+            </p>
+          )}
+          {!quote?.loading && quote && !quote.error && !quote.unavailable && (
+            quote.free_delivery ? (
+              <p className="text-xs font-medium text-green-700">
+                🚚 Free Delivery — shop se {quote.distance_km} km (60 km free zone ke andar)
+              </p>
+            ) : (
+              <p className="text-xs font-medium text-orange-700">
+                🚚 Delivery Charge: ₹{Number(quote.delivery_charge)} — shop se{" "}
+                {quote.distance_km} km door (60 km ke andar free hota hai)
+              </p>
+            )
+          )}
 
           <input
             name="phone"

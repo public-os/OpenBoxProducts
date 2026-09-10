@@ -47,6 +47,14 @@ def _notify_admin_order_paid(order_pk):
         )
     items_section = "\n".join(item_lines) if item_lines else "(no items)"
 
+    distance_line = ""
+    if order.delivery_distance_km is not None:
+        distance_line = f"Distance From Shop: {order.delivery_distance_km} km\n"
+    delivery_line = (
+        f"Delivery Charge: Rs.{order.delivery_charge} "
+        f"({'FREE' if order.delivery_charge == 0 else '60 km se door'})\n"
+    )
+
     subject = f"New Order #{order.id} Paid (Payment Verified)"
     message = (
         f"Payment verified — order placed!\n"
@@ -58,6 +66,8 @@ def _notify_admin_order_paid(order_pk):
         f"Customer Name: {order.shipping_name}\n"
         f"Phone: {order.shipping_phone}\n"
         f"Address: {order.shipping_address}\n"
+        f"{distance_line}"
+        f"{delivery_line}"
         f"\n"
         f"Items:\n"
         f"{items_section}\n"
