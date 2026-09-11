@@ -4,20 +4,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { authFetch, getAccessToken } from "../utils/auth.js";
 import { formatDateTime, formatINR } from "../utils/format.js";
 
-const PAYMENT_BADGES = {
-    pending: "bg-yellow-100 text-yellow-800",
-    verifying: "bg-blue-100 text-blue-800",
-    paid: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-700",
-};
-
-const PAYMENT_LABELS = {
-    pending: "Payment Pending",
-    verifying: "Verifying Payment",
-    paid: "Paid",
-    failed: "Payment Failed",
-};
-
 const ORDER_BADGES = {
     verifying: "bg-blue-100 text-blue-800",
     paid: "bg-green-100 text-green-800",
@@ -81,12 +67,9 @@ function CartPage() {
     const nav = useNavigate();
 
     // User ke saare orders — null = loading / logged out, [] = kuch nahi.
-    // Status ke hisaab se sections derive hote hai: pending (payment baaki),
-    // active (payment ho gaya, delivery chal rahi hai). Delivered history
-    // Account page ke "Your Orders History" me dikhti hai.
+    // Active (payment ho gaya, delivery chal rahi hai) orders yahan dikhte hai.
+    // Delivered history Account page ke "Your Orders History" me dikhti hai.
     const [orders, setOrders] = useState(null);
-    // Jis pending order ka remove chal raha hai uska id (button disable ke liye)
-    const [removingId, setRemovingId] = useState(null);
 
     const loadOrders = useCallback(() => {
         if (!getAccessToken()) return Promise.resolve();
@@ -104,17 +87,6 @@ function CartPage() {
         loadOrders();
     }, [loadOrders]);
 
-    // Pending = sirf wo orders jinpe user ko abhi Pay Now karna hai.
-    // Verifying (UTR submit ho chuka, admin verification baaki) aur paid
-    // payment wale active side me dikhte hai — unme user ka koi action nahi.
-    const pendingOrders = orders
-        ? orders.filter(
-            (o) =>
-                o.status === "pending" &&
-                o.payment_status !== "verifying" &&
-                o.payment_status !== "paid"
-        )
-        : null;
     const activeOrders = orders
         ? orders.filter(
             (o) =>
@@ -124,28 +96,6 @@ function CartPage() {
                     (o.payment_status === "verifying" || o.payment_status === "paid"))
         )
         : [];
-
-    // Pending order remove — backend par cancel hota hai, stock wapas add ho jata hai
-    const handleRemoveOrder = async (orderId) => {
-        if (!window.confirm("Remove this pending order?")) return;
-        setRemovingId(orderId);
-        try {
-            const res = await authFetch(`${BASEURL}/api/orders/${orderId}/cancel/`, {
-                method: "POST",
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                alert(data.error || "Could not remove order.");
-                return;
-            }
-            await loadOrders();
-        } catch (error) {
-            console.error("Error removing order:", error);
-            alert("Could not remove order. Please try again.");
-        } finally {
-            setRemovingId(null);
-        }
-    };
 
     return (
         <div className="pt-20 min-h-screen bg-gray-400 p-4 sm:p-20 sm:pb-20 pb-20 md:pb-8">
@@ -274,77 +224,6 @@ function CartPage() {
                     </div>
                 </div>
             )} 
-
-            {/* ---------- Pending Orders: payment baaki hai ---------- */}
-            {pendingOrders && pendingOrders.length > 0 && (
-                <div className="max-w-4xl mx-auto mt-6 mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
-                    <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
-                        ⏳ Pending Orders
-                        <span className="ml-2 text-sm font-normal text-gray-500">
-                            payment complete karna baaki hai
-                        </span>
-                    </h2>
-                    {pendingOrders.map((order) => {
-                        const payAllowed =
-                            order.payment_status !== "paid" &&
-                            order.payment_status !== "verifying";
-                        return (
-                            <div
-                                key={order.order_id}
-                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 border-b border-gray-200 last:border-b-0"
-                            >
-                                <div className="flex items-center gap-3 min-w-0">
-                                    <OrderThumbs order={order} />
-                                    <div className="min-w-0">
-                                        <p className="font-semibold text-sm">#{order.order_ref}</p>
-                                        <p className="text-xs text-gray-500">
-                                            Placed: {formatDateTime(order.created_at)}
-                                        </p>
-                                        <span
-                                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${PAYMENT_BADGES[order.payment_status] ||
-                                                "bg-gray-100 text-gray-700"
-                                                }`}
-                                        >
-                                            {PAYMENT_LABELS[order.payment_status] || order.payment_status}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-4 shrink-0">
-                                    <p className="font-semibold">₹{formatINR(order.total_amount)}</p>
-                                    {payAllowed ? (
-                                        <>
-                                            <button
-                                                onClick={() =>
-                                                    nav("/checkout", {
-                                                        state: { resumeOrderId: order.order_id },
-                                                    })
-                                                }
-                                                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm font-semibold"
-                                            >
-                                                Pay Now
-                                            </button>
-                                            <button
-                                                onClick={() => handleRemoveOrder(order.order_id)}
-                                                disabled={removingId === order.order_id}
-                                                className="text-red-500 hover:text-red-700 text-sm sm:text-base transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {removingId === order.order_id ? "Removing…" : "Remove"}
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <Link
-                                            to={`/orders/${order.order_id}/track`}
-                                            className="text-blue-600 hover:underline text-sm"
-                                        >
-                                            Track Order
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
 
             {/* ---------- Active Orders: payment ho gaya, delivery chal rahi hai ---------- */}
             {activeOrders.length > 0 && (
