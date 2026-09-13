@@ -119,7 +119,7 @@ function OrderHistoryPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-400 mb-6">
+        <div className="min-h-screen bg-gray-400 pb-6">
             {/* ===== Top bar ===== */}
             <nav className="bg-blue-100 fixed top-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center px-3 py-2.5 shadow-sm">
                 <button
@@ -132,7 +132,7 @@ function OrderHistoryPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
                 </button>
-                <h1 className="text-center text-base sm:text-lg font-bold text-gray-800">Order History</h1>
+                <h1 className="text-center text-base sm:text-lg font-normal text-gray-800">Order History</h1>
                 <div className="w-9 h-9"></div>
             </nav>
 
@@ -186,7 +186,7 @@ function OrderHistoryPage() {
                                     </svg>
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                    <h2 className="text-lg font-bold text-gray-900 truncate">
+                                    <h2 className="text-md font-semibold text-gray-900 truncate">
                                         Received on {formatDate(order.updated_at)}
                                     </h2>
                                     <p className="text-sm text-gray-600 truncate">

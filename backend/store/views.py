@@ -206,8 +206,24 @@ class LoginSerializer(TokenObtainPairSerializer):
 
         user = User.objects.filter(username__iexact=username).first()
         if not user:
+            # Mobile number se bhi login chalta hai (forgot-password jaisa lookup).
+            # Profile phone me purana dirty data ho sakta hai (+91 prefix, beech me
+            # spaces) — pehle exact match, warna digits normalize karke compare.
+            digits = ''.join(ch for ch in username if ch.isdigit())
+            if len(digits) >= 10:
+                needle = digits[-10:]
+                profile = UserProfile.objects.filter(phone=needle).first()
+                if profile is None:
+                    # Last-4 digits se candidates narrow karke poore digits milao
+                    for cand in UserProfile.objects.filter(phone__endswith=needle[-4:]):
+                        if ''.join(ch for ch in str(cand.phone) if ch.isdigit())[-10:] == needle:
+                            profile = cand
+                            break
+                user = profile.user if profile else None
+
+        if not user:
             raise exceptions.AuthenticationFailed(
-                'Incorrect username',
+                'Incorrect username or mobile number',
                 'incorrect_username',
             )
 
@@ -299,6 +315,70 @@ def forgot_password(request):
     return Response(response_data)
 
 
+def _check_otp(identifier, phone, otp):
+    """OTP validity check jo verify-otp aur reset-password dono use karte hain.
+    OTP sahi ho toh (record, None), warna (None, error Response). Brute-force
+    attempt counter dono endpoints ke beech shared hai, taaki verify endpoint
+    se guess karke reset-password ka guard bypass na ho sake."""
+    record = OTPVerification.objects.filter(phone=phone).order_by('-created_at', '-id').first() if phone else None
+
+    if not record or record.otp != otp:
+        # Brute-force guard: har galat attempt count karo. OTP_MAX_VERIFY_ATTEMPTS
+        # fail hone par OTP record hi uda do — naya OTP maangna padega. Bina iske
+        # 6-digit OTP ko 5 min ki expiry ke andar brute-force karne ki jagah rehti.
+        attempts_key = f"otp_attempts:{phone or identifier}"
+        attempts = cache.get(attempts_key, 0) + 1
+        if attempts >= OTP_MAX_VERIFY_ATTEMPTS:
+            if record:
+                record.delete()
+            cache.delete(attempts_key)
+            return None, Response(
+                {'error': 'Too many wrong attempts. Please request a new OTP.', 'code': 'otp_attempts_exceeded'},
+                status=429
+            )
+        cache.set(attempts_key, attempts, OTP_EXPIRY_MINUTES * 60)
+        return None, Response(
+            {'error': 'Invalid OTP. Please check and try again.', 'code': 'invalid_otp'},
+            status=400
+        )
+
+    if timezone.now() - record.created_at > timedelta(minutes=OTP_EXPIRY_MINUTES):
+        record.delete()
+        return None, Response(
+            {'error': 'OTP has expired. Please request a new one.', 'code': 'otp_expired'},
+            status=400
+        )
+
+    return record, None
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([OtpVerifyRateThrottle])
+def verify_otp(request):
+    """Forgot-password ka step 2: OTP sirf verify hota hai — password abhi reset
+    nahi hota aur OTP record consume nahi hota (final authority reset-password
+    me rehti hai, jo submit par OTP dobara check karti hai)."""
+    identifier = str(request.data.get('identifier', '')).strip()
+    otp = str(request.data.get('otp', '')).strip()
+
+    if not identifier or not otp:
+        return Response({'error': 'Username/mobile and OTP are required'}, status=400)
+
+    user = _find_user_by_identifier(identifier)
+    if user is None:
+        return Response({'error': 'No account found with that username or mobile number'}, status=404)
+
+    phone = _user_phone(user)
+    if not phone:
+        return Response({'error': 'This account has no mobile number linked.'}, status=400)
+
+    record, error = _check_otp(identifier, phone, otp)
+    if error:
+        return error
+    return Response({'verified': True})
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([OtpVerifyRateThrottle])
@@ -316,28 +396,9 @@ def reset_password(request):
         return Response({'error': 'No account found with that username or mobile number'}, status=404)
 
     phone = _user_phone(user)
-    record = OTPVerification.objects.filter(phone=phone).order_by('-created_at', '-id').first() if phone else None
-
-    if not record or record.otp != otp:
-        # Brute-force guard: har galat attempt count karo. OTP_MAX_VERIFY_ATTEMPTS
-        # fail hone par OTP record hi uda do — naya OTP maangna padega. Bina iske
-        # 6-digit OTP ko 5 min ki expiry ke andar brute-force karne ki jagah rehti.
-        attempts_key = f"otp_attempts:{phone or identifier}"
-        attempts = cache.get(attempts_key, 0) + 1
-        if attempts >= OTP_MAX_VERIFY_ATTEMPTS:
-            if record:
-                record.delete()
-            cache.delete(attempts_key)
-            return Response(
-                {'error': 'Too many wrong attempts. Please request a new OTP.'},
-                status=429
-            )
-        cache.set(attempts_key, attempts, OTP_EXPIRY_MINUTES * 60)
-        return Response({'error': 'Invalid OTP. Please check and try again.'}, status=400)
-
-    if timezone.now() - record.created_at > timedelta(minutes=OTP_EXPIRY_MINUTES):
-        record.delete()
-        return Response({'error': 'OTP has expired. Please request a new one.'}, status=400)
+    record, error = _check_otp(identifier, phone, otp)
+    if error:
+        return error
 
     if password2 and password != password2:
         return Response({'error': 'Passwords do not match.'}, status=400)

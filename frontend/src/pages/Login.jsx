@@ -4,7 +4,7 @@ import { saveTokens } from "../utils/auth.js";
 import AvatarPickerModal from "../components/AvatarPickerModal.jsx";
 
 const OTP_LENGTH = 6;
-const RESEND_SECONDS = 30;
+const RESEND_SECONDS = 60;
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const GoogleIcon = () => (
@@ -89,7 +89,8 @@ function Login() {
   const [timer, setTimer] = useState(RESEND_SECONDS);
 
   const otpInputRefs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
-  const autoAdvanceRef = useRef(false);
+  // Aakhri OTP jo server par verify ho chuka hai — isi se reset step par entry hoti hai
+  const verifiedOtpRef = useRef("");
   const googleBtnRef = useRef(null);
   const googleInitRef = useRef(false);
 
@@ -101,7 +102,7 @@ function Login() {
     setOtpDigits(Array(OTP_LENGTH).fill(""));
     setDevOtp("");
     setSmsNotice("");
-    autoAdvanceRef.current = false;
+    verifiedOtpRef.current = "";
   };
 
   // Resend is available once the countdown hits zero
@@ -187,7 +188,7 @@ function Login() {
     e.preventDefault();
     setErrorMsg("");
     if (!username.trim() || !password) {
-      setErrorMsg("Please enter your username and password");
+      setErrorMsg("Please enter your username/mobile number and password");
       return;
     }
 
@@ -312,7 +313,7 @@ function Login() {
           : data.message || "SMS delivery failed — use the dev OTP below."
       );
       setOtpDigits(Array(OTP_LENGTH).fill(""));
-      autoAdvanceRef.current = false;
+      verifiedOtpRef.current = "";
       setTimer(RESEND_SECONDS);
       setForgotStep("otp");
       return true;
@@ -331,11 +332,36 @@ function Login() {
 
   const handleResendOtp = async () => {
     setOtpDigits(Array(OTP_LENGTH).fill(""));
-    autoAdvanceRef.current = false;
+    verifiedOtpRef.current = "";
     setErrorMsg("");
     setTimer(RESEND_SECONDS);
     otpInputRefs[0].current?.focus();
     await requestOtp();
+  };
+
+  // OTP ko server par verify karo — sirf sahi OTP par hi reset step khulta hai.
+  // (Pehle ye bina verification ke ho jata tha, isliye galat OTP bhi aage nikal jata tha.)
+  const verifyOtpCode = async (otp) => {
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/verify-otp/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: identifier.trim(), otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(extractError(data, "Invalid OTP. Please check and try again."));
+        return;
+      }
+      verifiedOtpRef.current = otp;
+      setForgotStep("reset");
+    } catch {
+      setErrorMsg("Could not reach the server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ---------- OTP box handlers ----------
@@ -356,16 +382,15 @@ function Login() {
       }
     }
 
-    // Move on to the new-password step as soon as all digits are filled
-    // (note: joined.includes("") is always true, so check the digits directly)
+    // Saare digits bharte hi server se verify karo — galat OTP par reset step
+    // nahi khulega, error dikhega aur user boxes edit kar sakta hai
     if (newOtp.every((d) => d !== "")) {
-      if (!autoAdvanceRef.current) {
-        autoAdvanceRef.current = true;
-        setErrorMsg("");
-        setForgotStep("reset");
+      const joined = newOtp.join("");
+      if (joined !== verifiedOtpRef.current) {
+        verifyOtpCode(joined);
       }
     } else {
-      autoAdvanceRef.current = false;
+      setErrorMsg("");
     }
   };
 
@@ -381,10 +406,11 @@ function Login() {
     setOtpDigits(newOtp);
     otpInputRefs[pasted.length - 1].current?.focus();
 
-    if (pasted.length === OTP_LENGTH && !autoAdvanceRef.current) {
-      autoAdvanceRef.current = true;
-      setErrorMsg("");
-      setForgotStep("reset");
+    if (pasted.length === OTP_LENGTH) {
+      const joined = newOtp.join("");
+      if (joined !== verifiedOtpRef.current) {
+        verifyOtpCode(joined);
+      }
     }
   };
 
@@ -428,6 +454,12 @@ function Login() {
       const data = await res.json();
       if (!res.ok) {
         setErrorMsg(extractError(data));
+        // OTP beech me galat/expired nikla (verify ke baad 5 min me reset na
+        // ho sake) — error OTP boxes ke saath dikhao taaki user dobara daal sake
+        if (typeof data.code === "string" && data.code.startsWith("otp")) {
+          verifiedOtpRef.current = "";
+          setForgotStep("otp");
+        }
         return;
       }
       setView("login");
@@ -439,6 +471,7 @@ function Login() {
       setNewPassword2("");
       setOtpDigits(Array(OTP_LENGTH).fill(""));
       setDevOtp("");
+      verifiedOtpRef.current = "";
     } catch {
       setErrorMsg("Could not reach the server. Please try again.");
     } finally {
@@ -453,12 +486,12 @@ function Login() {
       navigate(redirectRef.current, { replace: true });
     } else if (view === "forgot") {
       if (forgotStep === "reset") {
+        // OTP abhi bhi verified hai — boxes edit karne par hi dobara verify hoga
         setForgotStep("otp");
-        autoAdvanceRef.current = otpDigits.every((d) => d !== "");
       } else if (forgotStep === "otp") {
         setForgotStep("request");
         setOtpDigits(Array(OTP_LENGTH).fill(""));
-        autoAdvanceRef.current = false;
+        verifiedOtpRef.current = "";
       } else {
         setView("login");
       }
@@ -542,12 +575,12 @@ function Login() {
           </div>
 
           {errorMsg && (
-            <div className="mb-4 bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded-xl text-xs font-semibold break-words">
+            <div className="mb-4 text-center text-red-700 p-3 text-xs font-semibold break-words">
               ⚠️ {errorMsg}
             </div>
           )}
           {successMsg && (
-            <div className="mb-4 bg-green-50 border-l-4 border-green-600 text-green-700 p-3 rounded-xl text-xs font-semibold break-words">
+            <div className="mb-4 text-center text-green-700 p-3 text-xs font-semibold break-words">
               ✅ {successMsg}
             </div>
           )}
@@ -560,7 +593,7 @@ function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username"
+                  placeholder="Username or mobile number"
                   autoComplete="username"
                   className={inputClass}
                   autoFocus
@@ -826,8 +859,11 @@ function Login() {
                 ))}
               </div>
 
+              {/* Verify chal raha hai (saare digits bhare hue) — resend line ki jagah */}
               <div className="text-center mt-7 min-h-[20px]">
-                {canResend ? (
+                {loading && otpDigits.every((d) => d !== "") ? (
+                  <span className="text-sm font-semibold text-gray-500">Verifying code…</span>
+                ) : canResend ? (
                   <button
                     type="button"
                     onClick={handleResendOtp}

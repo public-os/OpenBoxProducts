@@ -3,52 +3,36 @@
 const linkColumns = [
     {
         title: 'ABOUT',
-        links: ['Contact Us', 'About Us', 'Careers', 'Flipkart Stories', 'Press', 'Corporate Information'],
+        links: ['Contact Us', 'About Us', 'Obox Shop Stories'],
     },
     {
-        title: 'GROUP COMPANIES',
-        links: ['Myntra', 'Cleartrip', 'Shopsy'],
+        title: 'Call for Product Details',
+        links: [<p className='text-sm text-blue-400'>
+            8826612108
+        </p>],
     },
     {
         title: 'HELP',
-        links: ['Payments', 'Shipping', 'Cancellations & Returns', 'FAQ'],
+        links: ['Payments', 'Shipping'],
     },
     {
         title: 'CONSUMER POLICY',
         links: [
             'Cancellation & Returns',
-            'Terms Of Use',
             'Security',
             'Privacy',
-            'Sitemap',
-            'Grievance Redressal',
-            'EPR Compliance',
-            'FSSAI Food Safety',
-            'Connect App',
         ],
     },
 ];
 
 const addressLines = [
-    'Flipkart Internet Private Limited,',
-    'Buildings Alyssa, Begonia &',
-    'Clove Embassy Tech Village,',
-    'Outer Ring Road, Devarabeesanahalli Village,',
-    'Bengaluru, 560103,',
-    'Karnataka, India',
+    // 'Obox Shop Internet Private Limited,',
+    'Om vihar, Crossings Republik',
+    'Ghaziabad, 201009,',
+    'Uttar Pradesh, India',
 ];
 
 const socialIcons = [
-    {
-        name: 'Facebook',
-        href: 'https://facebook.com',
-        path: 'M13.397 20.997v-8.196h2.765l.411-3.209h-3.176V7.548c0-.926.258-1.56 1.587-1.56h1.684V3.127A22.336 22.336 0 0 0 14.201 3c-2.444 0-4.122 1.492-4.122 4.231v2.355H7.332v3.209h2.753v8.202h3.312z',
-    },
-    {
-        name: 'X (Twitter)',
-        href: 'https://x.com',
-        path: 'M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z',
-    },
     {
         name: 'YouTube',
         href: 'https://www.youtube.com/@oboxshop',
@@ -64,7 +48,7 @@ const socialIcons = [
 function Footer() {
     return (
         <footer className='bg-[#212121] text-gray-200'>
-            <div className='max-w-7xl mx-auto px-6 py-10'>
+            <div className='max-w-7xl mx-auto px-6 py-20'>
                 <div className='grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4 lg:grid-cols-6'>
                     {/* 4 link columns */}
                     {linkColumns.map((col) => (
@@ -90,12 +74,13 @@ function Footer() {
 
                     {/* Mail Us + Social */}
                     <div className='col-span-2 md:col-span-2 lg:col-span-1 lg:border-l lg:border-gray-500 lg:pl-8'>
-                        <h3 className='text-xs font-semibold tracking-wider text-[#878787] mb-4'>Mail Us:</h3>
+                        <h3 className='text-xs font-semibold tracking-wider text-[#878787] mb-4'>Address:</h3>
                         <address className='not-italic text-sm leading-6'>
                             {addressLines.map((line) => (
                                 <span key={line} className='block'>{line}</span>
                             ))}
                         </address>
+
 
                         <h3 className='text-xs font-semibold tracking-wider text-[#878787] mt-6 mb-3'>Social</h3>
                         <div className='flex items-center gap-3'>
@@ -116,25 +101,15 @@ function Footer() {
                         </div>
                     </div>
 
-                    {/* Registered Office */}
+                    {/* {Webside Developer} */}
                     <div className='col-span-2 md:col-span-2 lg:col-span-1'>
                         <h3 className='text-xs font-semibold tracking-wider text-[#878787] mb-4'>
-                            Registered Office Address:
+                            Developed by: <p className='text-sm mt-2'>
+                        <a className='text-blue-400' href='https://www.linkedin.com/in/public-os/'>Abhay Pratap</a>
+                        </p>
                         </h3>
-                        <address className='not-italic text-sm leading-6'>
-                            {addressLines.map((line) => (
-                                <span key={line} className='block'>{line}</span>
-                            ))}
-                        </address>
-                        <p className='text-sm mt-2'>
-                            CIN: <span className='text-blue-400'>U51109KA2012PTC066107</span>
-                        </p>
-                        <p className='text-sm'>
-                            Telephone:{' '}
-                            <a href='tel:04445614700' className='text-blue-400 hover:underline'>044-45614700</a>
-                            {' / '}
-                            <a href='tel:04445714708' className='text-blue-400 hover:underline'>044-45714708</a>
-                        </p>
+                        
+
                     </div>
                 </div>
             </div>

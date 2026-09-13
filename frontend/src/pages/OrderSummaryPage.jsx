@@ -87,7 +87,7 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
     };
 
     return (
-        <div className="min-h-screen bg-gray-400 mb-6">
+        <div className="min-h-screen bg-gray-400 pb-6">
             {/* ===== Top bar: back + delete ===== */}
             <nav className="bg-blue-100 fixed top-0 w-full z-50 grid grid-cols-[auto_1fr_auto] items-center px-3 py-2.5 shadow-sm">
                 <button
@@ -131,7 +131,7 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
                 {!loading && order && (
                     <div className="bg-white rounded-2xl shadow-sm p-5 sm:p-6">
                         {/* ===== Heading ===== */}
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900">Order summary</h1>
+                        <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900">Order summary</h1>
                         <p className="text-gray-500 mt-1">Arrived at {formatTime(order.updated_at)}</p>
                         <button
                             onClick={downloadInvoice}
@@ -144,7 +144,7 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
                         </button>
 
                         {/* ===== Items ===== */}
-                        <h2 className="text-lg sm:text-xl font-extrabold text-gray-900 mt-6 mb-2">
+                        <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6 mb-2">
                             {order.items.length} item{order.items.length > 1 ? "s" : ""} in this order
                         </h2>
                         <div className="divide-y divide-gray-100">
@@ -171,7 +171,7 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
                                                 )}
                                             </div>
                                             <div className="min-w-0 flex-1">
-                                                <p className="font-semibold text-gray-900 leading-snug group-hover:text-blue-600 transition-colors">
+                                                <p className="font-normal text-sm text-gray-900 leading-snug group-hover:text-blue-600 transition-colors">
                                                     {item.product}
                                                 </p>
                                                 <p className="text-sm text-gray-500 mt-0.5">
@@ -179,14 +179,14 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
                                                 </p>
                                             </div>
                                         </Link>
-                                        <p className="font-bold text-gray-900 shrink-0">₹{formatINR(item.subtotal)}</p>
+                                        <p className="font-normal text-gray-900 shrink-0">₹{formatINR(item.subtotal)}</p>
                                     </div>
                                 );
                             })}
                         </div>
 
                         {/* ===== Bill details ===== */}
-                        <h2 className="text-lg sm:text-xl font-extrabold text-gray-900 mt-6 mb-2">Bill details</h2>
+                        <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6 mb-2">Bill details</h2>
                         <div className="divide-y divide-gray-100 text-sm sm:text-base">
                             <div className="flex items-center justify-between py-2.5">
                                 <span className="text-gray-800">Item total</span>
@@ -199,15 +199,15 @@ Delivery charges: ${Number(order.delivery_charge) === 0 ? "FREE" : `₹${formatI
                                 </span>
                             </div>
                             <div className="flex items-center justify-between py-3">
-                                <span className="font-extrabold text-gray-900 text-base sm:text-lg">Bill total</span>
-                                <span className="font-extrabold text-gray-900 text-base sm:text-lg">
+                                <span className="font-semibold text-gray-900 text-base sm:text-lg">Bill total</span>
+                                <span className="font-semibold text-gray-900 text-base sm:text-lg">
                                     ₹{formatINR(order.total_amount)}
                                 </span>
                             </div>
                         </div>
 
                         {/* ===== Order details ===== */}
-                        <h2 className="text-lg sm:text-xl font-extrabold text-gray-900 mt-6 mb-2">Order details</h2>
+                        <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6 mb-2">Order details</h2>
                         <dl className="text-sm sm:text-base space-y-3">
                             <div>
                                 <dt className="text-gray-500">Order id</dt>

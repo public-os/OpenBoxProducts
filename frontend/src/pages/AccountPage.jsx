@@ -181,7 +181,7 @@ function AccountPage() {
                             <h2 className="text-lg font-extrabold text-gray-900 mb-4">Edit Account</h2>
 
                             {errorMsg && (
-                                <div className="mb-4 bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded-xl text-xs font-semibold break-words">
+                                <div className="mb-4 text-center text-red-700 p-3 rounded-xl text-xs font-semibold break-words">
                                     ⚠️ {errorMsg}
                                 </div>
                             )}
@@ -272,10 +272,7 @@ function AccountPage() {
                         aria-label="Open your orders history"
                     >
                         <span className="text-base sm:text-lg font-semibold">
-                            📦 Your Orders History
-                            <span className="ml-2 text-sm font-normal text-gray-500">
-                                received orders dekho
-                            </span>
+                            📦 Your Orders
                         </span>
                         <svg
                             className="w-5 h-5 text-gray-500"

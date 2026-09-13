@@ -234,9 +234,6 @@ function CartPage() {
                 <div className="max-w-4xl mx-auto mb-6 bg-white p-4 sm:p-6 rounded-lg shadow-md">
                     <h2 className="text-base sm:text-lg font-semibold pb-3 border-b border-gray-200">
                         🚚 Active Orders
-                        <span className="ml-2 text-sm font-normal text-gray-500">
-                            payment ho gaya, delivery raaste me hai
-                        </span>
                     </h2>
                     {activeOrders.map((order) => {
                         // Verifying order ka status abhi bhi 'pending' hota hai —

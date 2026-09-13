@@ -140,6 +140,54 @@ class StoreTestCase(TestCase):
         })
         self.assertEqual(res.status_code, 200)
 
+    def test_verify_otp_accepts_correct_code(self):
+        OTPVerification.objects.create(phone='9876543210', otp='123456')
+
+        res = self.client.post('/api/verify-otp/', {
+            'identifier': 'testuser',
+            'otp': '123456',
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data.get('verified'))
+        # OTP record consume nahi hota — baad me reset-password isi par chalega
+        self.assertTrue(OTPVerification.objects.filter(phone='9876543210', otp='123456').exists())
+
+    def test_verify_otp_rejects_wrong_code(self):
+        OTPVerification.objects.create(phone='9876543210', otp='123456')
+
+        res = self.client.post('/api/verify-otp/', {
+            'identifier': 'testuser',
+            'otp': '999999',
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data.get('code'), 'invalid_otp')
+        # Sahi OTP abhi bhi kaam karega (ek galat attempt count hua hai)
+        res2 = self.client.post('/api/verify-otp/', {'identifier': 'testuser', 'otp': '123456'})
+        self.assertEqual(res2.status_code, 200)
+
+    def test_verify_otp_unknown_user(self):
+        res = self.client.post('/api/verify-otp/', {
+            'identifier': 'nouser',
+            'otp': '123456',
+        })
+        self.assertEqual(res.status_code, 404)
+
+    def test_verify_then_reset_password_flow(self):
+        OTPVerification.objects.create(phone='9876543210', otp='123456')
+
+        res = self.client.post('/api/verify-otp/', {'identifier': '9876543210', 'otp': '123456'})
+        self.assertEqual(res.status_code, 200)
+
+        res2 = self.client.post('/api/reset-password/', {
+            'identifier': '9876543210',
+            'otp': '123456',
+            'password': 'NewPassword123!',
+            'password2': 'NewPassword123!'
+        })
+        self.assertEqual(res2.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('NewPassword123!'))
+
     def test_admin_product_change_view(self):
         admin_user = User.objects.create_superuser(username='admin', password='password', email='admin@example.com')
         self.client.force_login(admin_user)
@@ -149,12 +197,32 @@ class StoreTestCase(TestCase):
     def test_login_incorrect_username(self):
         res = self.client.post('/api/login/', {'username': 'nonexistentuser', 'password': 'somepassword'})
         self.assertEqual(res.status_code, 401)
-        self.assertEqual(res.data.get('detail'), 'Incorrect username')
+        self.assertEqual(res.data.get('detail'), 'Incorrect username or mobile number')
 
     def test_login_incorrect_password(self):
         res = self.client.post('/api/login/', {'username': 'testuser', 'password': 'wrongpassword'})
         self.assertEqual(res.status_code, 401)
         self.assertEqual(res.data.get('detail'), 'Password is incorrect')
+
+    def test_login_with_mobile_number(self):
+        res = self.client.post('/api/login/', {'username': '9876543210', 'password': 'password123'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['user']['username'], 'testuser')
+
+    def test_login_with_dirty_phone_data(self):
+        # Profile phone me +91 prefix ho toh bhi last-10 digits se login chale
+        self.profile.phone = '+91 98765 43210'
+        self.profile.save(update_fields=['phone'])
+        res = self.client.post('/api/login/', {'username': '9876543210', 'password': 'password123'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['user']['username'], 'testuser')
+
+    def test_login_username_takes_priority_over_phone(self):
+        # Agar koi user ka naam hi phone jaisa ho toh username match pehle dekha jaye
+        User.objects.create_user(username='9876543210', password='password123')
+        res = self.client.post('/api/login/', {'username': '9876543210', 'password': 'password123'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['user']['username'], '9876543210')
 
 
 class PaymentVerificationTest(TestCase):
