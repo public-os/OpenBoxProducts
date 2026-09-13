@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { authFetch, getAccessToken } from "../utils/auth.js";
@@ -21,7 +21,6 @@ function CheckoutPage() {
   const [trackedOrder, setTrackedOrder] = useState(null); // done step ka live tracking data
   // Address ke saath live delivery estimate (backend delivery-quote se)
   const [quote, setQuote] = useState(null);
-  const latestAddressRef = useRef(""); // purane quote response ko ignore karne ke liye
 
   const nav = useNavigate();
   const location = useLocation();
@@ -46,6 +45,7 @@ function CheckoutPage() {
             total_amount: data.total_amount,
             items_total: data.items_total,
             delivery_charge: data.delivery_charge,
+            delivery_distance_km: data.delivery_distance_km,
             shipping_name: data.shipping_name,
             shipping_address: data.shipping_address,
             shipping_phone: data.shipping_phone,
@@ -93,42 +93,40 @@ function CheckoutPage() {
   // Address type karte hi (700ms debounce) live delivery estimate — shop se
   // distance ke hisaab se FREE ya ₹40. Sirf dikhane ke liye; final charge
   // backend order create/update par khud calculate karta hai.
+  // Quote us address ke saath tag hota hai — stale response apne aap invalid.
   useEffect(() => {
-    if (step !== "details" || form.address.trim().length < 6) {
-      setQuote(null);
-      return;
-    }
-    setQuote((prev) => ({ ...prev, loading: true }));
+    const address = form.address.trim();
+    if (step !== "details" || address.length < 6) return;
     const timer = setTimeout(() => {
-      const requestedFor = form.address;
-      latestAddressRef.current = requestedFor;
       authFetch(`${BASEURL}/api/orders/delivery-quote/`, {
         method: "POST",
         body: JSON.stringify({ address: form.address }),
       })
         .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
         .then(({ ok, data }) => {
-          // Beech me user ne address badal diya toh purana response ignore karo
-          if (latestAddressRef.current !== requestedFor) return;
           setQuote(
             ok
-              ? { ...data, loading: false }
-              : { error: data.error || "Delivery estimate nahi mila.", loading: false }
+              ? { address: form.address, ...data }
+              : { address: form.address, error: data.error || "Delivery estimate nahi mila." }
           );
         })
         .catch(() => {
-          if (latestAddressRef.current !== requestedFor) return;
-          setQuote({ unavailable: true, loading: false });
+          setQuote({ address: form.address, unavailable: true });
         });
     }, 700);
     return () => clearTimeout(timer);
   }, [form.address, step, BASEURL]);
 
+  // Render-time derived: dikhane layak quote sirf wahi jiska address current hai;
+  // naye address par fetch hone tak "checking" dikhata hai (stale quote nahi).
+  const addressCheckable = step === "details" && form.address.trim().length >= 6;
+  const showQuote =
+    quote && quote.address === form.address ? quote : null;
+
   // Order confirm hone ke baad (done step) backend se latest status fetch karo
   useEffect(() => {
     if (step !== "done" || !order?.order_id) return;
     let isCancelled = false;
-    setTrackedOrder(null);
     authFetch(`${BASEURL}/api/orders/${order.order_id}/`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -146,7 +144,9 @@ function CheckoutPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return; // double-click = duplicate order — re-entry mat lo
     setError("");
+    setSubmitting(true);
 
     try {
       // Pending order se wapas aaye the (back icon / Pay Now) — naya order mat
@@ -176,6 +176,7 @@ function CheckoutPage() {
           total_amount: data.total_amount,
           items_total: data.items_total,
           delivery_charge: data.delivery_charge,
+          delivery_distance_km: data.delivery_distance_km,
           shipping_name: data.shipping_name ?? form.name,
           shipping_address: data.shipping_address ?? form.address,
           shipping_phone: data.shipping_phone ?? form.phone,
@@ -187,6 +188,8 @@ function CheckoutPage() {
     } catch (err) {
       console.error("Checkout error:", err);
       setError("Could not place order. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -291,6 +294,9 @@ function CheckoutPage() {
   // Step 3: payment verified — order confirmed
   // ------------------------------------------------------------------
   if (step === "done") {
+    // Purane order ka tracking naya dikh na paye — order_id match hi dikhao
+    const tracked =
+      trackedOrder && trackedOrder.order_id === order?.order_id ? trackedOrder : null;
     return (
       <div className="min-h-screen bg-gray-400 pt-35 p-6 pb-24 md:pb-8 sm:pt-30">
         <div className="max-w-lg mx-auto bg-white p-6 shadow rounded text-center">
@@ -330,8 +336,8 @@ function CheckoutPage() {
           {/* ---------------- Order Tracking ---------------- */}
           <div className="mt-4 border-t pt-4 text-left">
             <h2 className="text-sm font-bold text-gray-800 mb-3">📦 Order Tracking</h2>
-            <OrderTracking order={trackedOrder} />
-            {!trackedOrder && (
+            <OrderTracking order={tracked} />
+            {!tracked && (
               <p className="text-xs text-gray-500">Tracking load ho rahi hai…</p>
             )}
           </div>
@@ -494,26 +500,26 @@ function CheckoutPage() {
           />
 
           {/* Live delivery estimate — shop se distance ke hisaab se FREE ya ₹40 */}
-          {quote?.loading && (
+          {addressCheckable && !showQuote && (
             <p className="text-xs text-gray-500">🚚 Delivery charge check ho raha hai…</p>
           )}
-          {!quote?.loading && quote?.error && (
-            <p className="text-xs text-amber-700">⚠️ {quote.error}</p>
+          {showQuote?.error && (
+            <p className="text-xs text-amber-700">⚠️ {showQuote.error}</p>
           )}
-          {!quote?.loading && quote?.unavailable && (
+          {showQuote?.unavailable && (
             <p className="text-xs text-gray-500">
               🚚 Delivery charge abhi check nahi hua — aage total me add ho jayega.
             </p>
           )}
-          {!quote?.loading && quote && !quote.error && !quote.unavailable && (
-            quote.free_delivery ? (
+          {showQuote && !showQuote.error && !showQuote.unavailable && (
+            showQuote.free_delivery ? (
               <p className="text-xs font-medium text-green-700">
-                🚚 Free Delivery — shop se {quote.distance_km} km (60 km free zone ke andar)
+                🚚 Free Delivery — shop se {showQuote.distance_km} km (60 km free zone ke andar)
               </p>
             ) : (
               <p className="text-xs font-medium text-orange-700">
-                🚚 Delivery Charge: ₹{Number(quote.delivery_charge)} — shop se{" "}
-                {quote.distance_km} km door (60 km ke andar free hota hai)
+                🚚 Delivery Charge: ₹{Number(showQuote.delivery_charge)} — shop se{" "}
+                {showQuote.distance_km} km door (60 km ke andar free hota hai)
               </p>
             )
           )}

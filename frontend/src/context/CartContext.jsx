@@ -40,8 +40,8 @@ export const CartProvider = ({ children }) => {
         return () => window.removeEventListener(AUTH_EVENT, onAuthChange);
     }, [fetchCart]);
 
-    //Add Product to Cart (supports optional variantId)
-    const addToCart = async (productId, variantId = null) => {
+    //Add Product to Cart (supports optional variantId; silent=true par error alert nahi)
+    const addToCart = async (productId, variantId = null, { silent = false } = {}) => {
         try {
             const res = await authFetch(`${BASEURL}/api/cart/add/`, {
                 method: "POST",
@@ -52,13 +52,14 @@ export const CartProvider = ({ children }) => {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                alert(data.error || "Could not add item to cart.");
+                if (!silent) alert(data.error || "Could not add item to cart.");
                 return false;
             }
             await fetchCart();
             return true;
         } catch (error) {
             console.error("Error adding to cart:", error);
+            if (!silent) alert("Could not add item to cart. Please try again.");
             return false;
         }
     }

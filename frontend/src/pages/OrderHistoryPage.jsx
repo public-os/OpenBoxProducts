@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useCart } from "../context/CartContext.jsx";
 import { authFetch } from "../utils/auth.js";
-import { formatDateTime, formatINR, formatDate, formatTime } from "../utils/format.js";
+import { formatINR, formatDate, formatTime } from "../utils/format.js";
 
 // Blinkit-style Order History page — Account page ke "Your Orders History"
 // se khulta hai. Sirf delivered (received) orders dikhate hai.
@@ -39,14 +39,31 @@ function OrderHistoryPage() {
         )
         : [];
 
-    // Saare items dobara cart me daalo — cart context khud refresh hota hai
+    // Saare items dobara cart me daalo — quantity aur variant (color) dono
+    // preserve hote hai (backend ek call = +1 unit, isliye quantity times loop).
+    // Koi add fail ho (stock khatam etc.) toh baaki bhi try karte hai, end me
+    // ek hi summary alert — aur jitna add hua wahi cart me dikhega.
     const handleReorder = async (order) => {
         setReorderingId(order.order_id);
+        let attempted = 0;
+        let failed = 0;
         for (const item of order.items) {
-            await addToCart(item.product_id);
+            const qty = Math.max(1, Number(item.quantity) || 1);
+            for (let n = 0; n < qty; n++) {
+                attempted += 1;
+                const ok = await addToCart(item.product_id, item.variant_id ?? null, { silent: true });
+                if (!ok) failed += 1;
+            }
         }
         setReorderingId(null);
-        navigate("/cart");
+        if (failed > 0) {
+            alert(
+                failed === attempted
+                    ? "Items could not be added to your cart — they may be out of stock now."
+                    : `${failed} of ${attempted} item(s) could not be added — they may be out of stock now.`
+            );
+        }
+        if (failed < attempted) navigate("/cart");
     };
 
     // Rate order → Blinkit-style rating page (har item ko stars)

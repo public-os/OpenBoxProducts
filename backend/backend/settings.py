@@ -56,6 +56,9 @@ REST_FRAMEWORK = {
     # Scoped throttles: OTP SMS bombing / Google endpoint abuse protection
     'DEFAULT_THROTTLE_RATES': {
         'otp': '10/hour',
+        # reset-password attempts — OTP brute-force protection (5 galat OTP par
+        # record bhi cancel ho jata hai, ye rate uske upar ek aur guard hai)
+        'otp_verify': '20/hour',
         'google': '30/hour',
         # delivery-quote: address typing par live estimate — Nominatim rate-limit friendly
         'delivery': '60/hour',

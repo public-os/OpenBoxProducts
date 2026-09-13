@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.images import get_image_dimensions
 from django.db import transaction
@@ -43,6 +44,12 @@ class OtpRateThrottle(_UserOrIpRateThrottle):
     scope = 'otp'
 
 
+class OtpVerifyRateThrottle(_UserOrIpRateThrottle):
+    """reset_password attempts — 6-digit OTP brute-force rokne ke liye
+    (forgot_password ka throttle yahan nahi lagta, iska apna strict rate hai)."""
+    scope = 'otp_verify'
+
+
 class GoogleRateThrottle(_UserOrIpRateThrottle):
     scope = 'google'
 
@@ -69,6 +76,8 @@ from .serializers import (
 )
 
 OTP_EXPIRY_MINUTES = 5
+# Ek OTP par kitni galat koshishen maaf — uske baad OTP cancel, naya maangna padega
+OTP_MAX_VERIFY_ATTEMPTS = 5
 
 
 # ------------------------------------------------------------------
@@ -80,43 +89,45 @@ def _mask_phone(phone):
 
 
 def _generate_and_send_otp(phone):
-    """Create a fresh OTP for the phone number and try to deliver it via Fast2SMS.
+    """Create a fresh OTP for the phone number and try to deliver it via 2Factor.
     Returns (otp_code, sms_sent, sms_error)."""
     otp_code = str(random.randint(100000, 999999))
     OTPVerification.objects.filter(phone=phone).delete()
     OTPVerification.objects.create(phone=phone, otp=otp_code)
 
-    fast2sms_key = os.getenv('FAST2SMS_API_KEY')
+    twofactor_key = os.getenv('TWOFACTOR_API_KEY')
     sms_sent = False
-    sms_error = 'SMS gateway not configured (set FAST2SMS_API_KEY in backend/.env).'
-    if fast2sms_key:
+    sms_error = 'SMS gateway not configured (set TWOFACTOR_API_KEY in backend/.env).'
+    if twofactor_key:
         sms_error = None
         try:
-            url = "https://www.fast2sms.com/dev/bulkV2"
-            payload = f"variables_values={otp_code}&route=otp&numbers={phone}"
-            headers = {
-                'authorization': fast2sms_key,
-                'Content-Type': "application/x-www-form-urlencoded"
-            }
-            res = requests.post(url, data=payload, headers=headers, timeout=10)
+            # Custom-OTP route: humara DB-stored 6-digit code 2Factor ke default
+            # template se bhejte hain; verify phir bhi DB ke against hota hai.
+            url = f"https://2factor.in/API/V1/{twofactor_key}/SMS/{phone}/{otp_code}"
+            res = requests.get(url, timeout=10)
             try:
                 body = res.json()
             except ValueError:
                 body = {}
-            # Fast2SMS can return HTTP 200 with return:false on API errors,
-            # so the body flag must be checked, not just the status code.
-            if res.status_code == 200 and body.get('return') is True:
+            # 2Factor HTTP errors par bhi JSON deta hai, phir bhi dono check karo.
+            if res.status_code == 200 and body.get('Status') == 'Success':
                 sms_sent = True
-                print(f"✅ [FAST2SMS] OTP SMS delivered to +91 {phone}")
+                # 2Factor SMS fail hone par chup-chaap VOICE CALL par fallback
+                # karta hai — uski hint 'Warnings' me aati hai, isliye log me
+                # poora Details/Warnings rakhte hain (voice credit bhi kat ta hai).
+                logger.info("[2FACTOR] OTP send OK for +91 %s (details=%s warnings=%s)",
+                            phone, body.get('Details'), body.get('Warnings') or 'none')
             else:
-                sms_error = str(body.get('message') or res.text)[:200]
-                print(f"⚠️ [FAST2SMS ({res.status_code})]: {sms_error}")
+                sms_error = str(body.get('Details') or res.text)[:200]
+                logger.warning("[2FACTOR (%s)]: %s", res.status_code, sms_error)
         except Exception as sms_err:
             sms_error = f"Could not reach SMS gateway: {sms_err}"
-            print(f"⚠️ [FAST2SMS EXCEPTION]: {sms_err}")
+            logger.warning("[2FACTOR EXCEPTION]: %s", sms_err)
 
     if not sms_sent:
-        print(f"\n=== OTP for +91 {phone}: {otp_code} (valid {OTP_EXPIRY_MINUTES} min) ===\n")
+        # Server-side console only — client ko OTP kabhi nahi bhejte (dev_otp
+        # dekhna hai toh EXPOSE_DEV_OTP=true + DEBUG dono chahiye).
+        logger.info("=== OTP for +91 %s: %s (valid %s min) ===", phone, otp_code, OTP_EXPIRY_MINUTES)
     return otp_code, sms_sent, sms_error
 
 
@@ -133,8 +144,13 @@ def _find_user_by_identifier(identifier):
 
 
 def _user_phone(user):
+    """Profile ka phone SMS-gateway/OTP-ready format me: sirf digits, last 10.
+    DB me purana dirty data ho (+91 prefix, spaces) toh bhi SMS aur OTP
+    lookup same clean number par chalein."""
     profile = UserProfile.objects.filter(user=user).first()
-    return profile.phone if profile else ''
+    raw = profile.phone if profile else ''
+    digits = ''.join(ch for ch in str(raw) if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
 
 
 MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -270,14 +286,22 @@ def forgot_password(request):
         'phone_masked': _mask_phone(phone),
         'sms_sent': sms_sent,
     }
-    # Dev convenience only: expose the OTP when SMS could not be delivered.
-    if not sms_sent and settings.DEBUG:
+    # Dev convenience only: OTP SMS me na ja sake toh response me expose karo.
+    # Real-world par ye OFF rehna chahiye — warna SMS fail hote hi koi bhi dev_otp
+    # padh kar kisi ka bhi password reset kar sakta hai. Local dev ke liye
+    # backend/.env me EXPOSE_DEV_OTP=true rakho.
+    if (
+        not sms_sent
+        and settings.DEBUG
+        and os.getenv('EXPOSE_DEV_OTP', 'false').lower() == 'true'
+    ):
         response_data['dev_otp'] = otp_code
     return Response(response_data)
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([OtpVerifyRateThrottle])
 def reset_password(request):
     identifier = str(request.data.get('identifier', '')).strip()
     otp = str(request.data.get('otp', '')).strip()
@@ -295,6 +319,20 @@ def reset_password(request):
     record = OTPVerification.objects.filter(phone=phone).order_by('-created_at', '-id').first() if phone else None
 
     if not record or record.otp != otp:
+        # Brute-force guard: har galat attempt count karo. OTP_MAX_VERIFY_ATTEMPTS
+        # fail hone par OTP record hi uda do — naya OTP maangna padega. Bina iske
+        # 6-digit OTP ko 5 min ki expiry ke andar brute-force karne ki jagah rehti.
+        attempts_key = f"otp_attempts:{phone or identifier}"
+        attempts = cache.get(attempts_key, 0) + 1
+        if attempts >= OTP_MAX_VERIFY_ATTEMPTS:
+            if record:
+                record.delete()
+            cache.delete(attempts_key)
+            return Response(
+                {'error': 'Too many wrong attempts. Please request a new OTP.'},
+                status=429
+            )
+        cache.set(attempts_key, attempts, OTP_EXPIRY_MINUTES * 60)
         return Response({'error': 'Invalid OTP. Please check and try again.'}, status=400)
 
     if timezone.now() - record.created_at > timedelta(minutes=OTP_EXPIRY_MINUTES):
@@ -312,6 +350,7 @@ def reset_password(request):
     user.set_password(password)
     user.save(update_fields=['password'])
     record.delete()
+    cache.delete(f"otp_attempts:{phone}")
 
     return Response({'message': 'Password reset successfully. Please login with your new password.'})
 
@@ -714,6 +753,8 @@ def _order_response(order):
         items_total += item.price * item.quantity
         items.append({
             'product_id': item.product_id,
+            # Reorder isi se wahi variant wapas cart me daalta hai (color/price)
+            'variant_id': item.variant_id,
             'product': item.product.name,
             'image': image.url if image else None,
             'variant': item.variant.color_name if item.variant else None,

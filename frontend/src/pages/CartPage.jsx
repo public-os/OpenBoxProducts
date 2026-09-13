@@ -145,7 +145,8 @@ function CartPage() {
                 <div className="mb-6 max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md">
                     {cartItems.map((item) => {
                         const name = item.product_name || item.name;
-                        const price = item.product_price || item.price;
+                        // unit_price = variant extra_price ke saath actual charged price
+                        const price = item.unit_price || item.product_price || item.price;
                         const image = item.product_image || item.image;
                         const imageSrc = image ? (image.startsWith('http') ? image : `${BASEURL}${image.startsWith('/') ? '' : '/'}${image}`) : null;
 
@@ -167,6 +168,9 @@ function CartPage() {
                                         <h2 className="text-base sm:text-lg font-semibold truncate">
                                             {name}
                                         </h2>
+                                        {item.variant_name && (
+                                            <p className="text-xs text-gray-500">{item.variant_name}</p>
+                                        )}
                                         <p className="text-gray-600">₹{price}</p>
                                     </div>
                                 </div>

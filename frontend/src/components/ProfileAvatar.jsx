@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import VipBadge from "./VipBadge.jsx";
 
 // Default profile logo — jab koi image set nahi hai (skip kiya ya email par bhi kuch nahi mila)
@@ -21,12 +21,10 @@ export function DefaultAvatar({ className = "w-full h-full rounded-full" }) {
  * (account page par camera niche hota hai, isliye tick upar).
  */
 export default function ProfileAvatar({ src, alt = "Profile photo", className = "w-24 h-24", editable = false, onChange, vip = false, vipTop = false, fallbackLabel }) {
-    const [failed, setFailed] = useState(false);
+    // Kaunsi src load fail hui — nayi src par fallback apne aap reset ho jata hai
+    const [failedSrc, setFailedSrc] = useState(null);
 
-    // Nayi src aane par error state reset ho jaye
-    useEffect(() => setFailed(false), [src]);
-
-    const showImage = src && !failed;
+    const showImage = src && failedSrc !== src;
 
     return (
         <div className={`relative shrink-0 ${className}`}>
@@ -34,7 +32,7 @@ export default function ProfileAvatar({ src, alt = "Profile photo", className = 
                 <img
                     src={src}
                     alt={alt}
-                    onError={() => setFailed(true)}
+                    onError={() => setFailedSrc(src)}
                     className="w-full h-full rounded-full object-cover border border-gray-200 bg-white"
                 />
             ) : fallbackLabel ? (

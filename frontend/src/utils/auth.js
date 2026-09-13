@@ -52,30 +52,42 @@ export const clearTokens = () => {
 export const getAccessToken = () => localStorage.getItem('access_token');
 export const getRefreshToken = () => localStorage.getItem('refresh_token');
 
-// Naya access token lene ke liye refresh token use karo
-const refreshAccessToken = async () => {
+// Naya access token lene ke liye refresh token use karo.
+// Ek waqt me ek hi refresh call chalti hai — parallel 401s wahi promise share karte hai.
+let refreshPromise = null;
+
+const refreshAccessToken = () => {
   const refresh = getRefreshToken();
-  if (!refresh) return null;
+  if (!refresh) return Promise.resolve(null);
 
-  try {
-    const response = await fetch(`${BASEURL}/api/token/refresh/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh }),
-    });
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${BASEURL}/api/token/refresh/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh }),
+        });
 
-    if (!response.ok) {
-      clearTokens();
-      return null;
-    }
+        // Refresh token invalid/expired — tabhi session khatam karo
+        if (response.status === 401 || response.status === 403) {
+          clearTokens();
+          return null;
+        }
+        if (!response.ok) return null; // server error — tokens rehne do, dobara try hoga
 
-    const data = await response.json();
-    localStorage.setItem('access_token', data.access);
-    return data.access;
-  } catch {
-    clearTokens();
-    return null;
+        const data = await response.json();
+        localStorage.setItem('access_token', data.access);
+        return data.access;
+      } catch {
+        // Network blip — logout mat karo, agli request dobara refresh try karegi
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
   }
+  return refreshPromise;
 };
 
 export const authFetch = async (url, options = {}) => {

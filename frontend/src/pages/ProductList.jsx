@@ -36,10 +36,14 @@ function ProductList() {
     const query = (searchParams.get("q") || "").trim();
     const BASEURL = import.meta.env.VITE_DJANGO_BASE_URL;
 
-    // Route change hone par Show More reset
-    useEffect(() => {
+    // Route change hone par Show More reset — render ke dauran route diff se
+    // (React docs ka "adjust state when props change" pattern, effect nahi)
+    const [prevRoute, setPrevRoute] = useState(location.pathname + location.search);
+    const route = location.pathname + location.search;
+    if (prevRoute !== route) {
+        setPrevRoute(route);
         setShowAll(false);
-    }, [location.pathname, location.search]);
+    }
 
     // Header (HomeNav/Navbar) fixed hai — uski real height naap ke content usi ke
     // neeche rakho. Hardcoded pt se content header ke peeche chhup jata tha jab

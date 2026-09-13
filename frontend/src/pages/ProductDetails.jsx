@@ -219,9 +219,13 @@ function ProductDetails() {
 
         setAddingToCart(true);
         try {
-            await addToCart(product.id); // works whether addToCart is async or not
-            setJustAdded(true);
-            setTimeout(() => setJustAdded(false), 1500);
+            const ok = await addToCart(product.id);
+            // Backend ne mana kiya (stock khatam etc.) — addToCart khud alert
+            // dikha deta hai, "Added ✓" sirf success par hi jhilmilaye.
+            if (ok) {
+                setJustAdded(true);
+                setTimeout(() => setJustAdded(false), 1500);
+            }
         } catch (err) {
             console.error('Add to cart failed:', err);
         } finally {
@@ -234,8 +238,10 @@ function ProductDetails() {
 
         setAddingToCart(true);
         try {
-            await addToCart(product.id);
-            navigate('/checkout');
+            const ok = await addToCart(product.id);
+            // Add fail hua toh checkout par khaali cart ("Cart is empty") hi milega —
+            // isliye sirf successful add ke baad navigate karo.
+            if (ok) navigate('/checkout');
         } catch (err) {
             console.error('Buy now failed:', err);
         } finally {

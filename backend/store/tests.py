@@ -18,6 +18,16 @@ from store.models import Category, Product, ProductVariant, Cart, CartItem, Orde
 class StoreTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
+        # Order tests live geocode (Nominatim/Google) par depend na karein —
+        # '123 Main St' kabhi 60 km se door resolve hota hai aur ₹40 delivery
+        # charge jud jata hai (flaky 480 vs 440 failures + slow network calls).
+        # Deterministic free-delivery quote: (distance_km, charge, state)
+        self._geo_patcher = mock.patch(
+            'store.views.calculate_delivery',
+            return_value=(2.5, Decimal('0'), 'ok'),
+        )
+        self._geo_patcher.start()
+        self.addCleanup(self._geo_patcher.stop)
         self.user = User.objects.create_user(username='testuser', password='password123', first_name='Test User')
         self.profile = UserProfile.objects.create(user=self.user, phone='9876543210', address='123 Main St')
         self.client.force_authenticate(user=self.user)
